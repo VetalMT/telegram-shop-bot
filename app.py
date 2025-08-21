@@ -1,64 +1,47 @@
-
 import os
-import logging
-from fastapi import FastAPI, Request, HTTPException
-from aiogram import Bot, Dispatcher, types
-from aiogram.contrib.fsm_storage.memory import MemoryStorage
-from keyboards import shop_kb, admin_kb
-from config import BOT_TOKEN, ADMIN_ID
+from aiogram import Bot, Dispatcher, types, F
+from aiogram.filters import Command
+from aiogram.types import Message
+from aiohttp import web
 
-# ---------- Logging ----------
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
-log = logging.getLogger("tg-shop")
+TOKEN = os.getenv("BOT_TOKEN")
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # https://your-service.onrender.com/webhook
+ADMIN_ID = os.getenv("ADMIN_ID")
 
-# ---------- Bot / Dispatcher ----------
-bot = Bot(token=BOT_TOKEN, parse_mode=types.ParseMode.HTML)
-dp = Dispatcher(bot, storage=MemoryStorage())
+bot = Bot(token=TOKEN)
+dp = Dispatcher()
 
-# ---------- FastAPI app ----------
-app = FastAPI()
 
-WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "supersecret")         # set in Render env
-WEBHOOK_PATH = f"/webhook/{WEBHOOK_SECRET}"
-BASE_URL = os.getenv("RENDER_EXTERNAL_URL") or os.getenv("WEBHOOK_BASE_URL")  # set WEBHOOK_BASE_URL if needed
+@dp.message(Command("start"))
+async def cmd_start(message: Message):
+    await message.answer("👋 Привіт! Бот працює через Webhook на Render.")
 
-@app.on_event("startup")
-async def on_startup():
-    if BASE_URL:
-        url = BASE_URL.rstrip("/") + WEBHOOK_PATH
-        await bot.set_webhook(url)
-        log.info(f"Webhook set to: {url}")
-    else:
-        log.warning("No BASE_URL provided. Set env WEBHOOK_BASE_URL to your service URL on Render.")
 
-@app.on_event("shutdown")
-async def on_shutdown():
-    try:
-        await bot.delete_webhook()
-        log.info("Webhook deleted")
-    except Exception as e:
-        log.warning(f"delete_webhook error: {e}")
-
-@app.get("/")
-async def root():
-    return {"status": "ok"}
-
-@app.post(WEBHOOK_PATH)
-async def telegram_webhook(request: Request):
-    try:
-        data = await request.json()
-    except Exception as e:
-        raise HTTPException(status_code=400, detail="Invalid JSON")
+# --- Обробка вебхука ---
+async def handle_webhook(request):
+    data = await request.json()
     update = types.Update(**data)
-    await dp.process_update(update)
-    return {"ok": True}
+    await dp.feed_update(bot, update)
+    return web.Response()
 
-# ---------- Handlers ----------
-@dp.message_handler(commands=["start"])
-async def start_cmd(message: types.Message):
-    if message.from_user.id == ADMIN_ID:
-        await message.answer("Привіт, адміністратор! 👑", reply_markup=admin_kb)
-    else:
-        await message.answer("Вітаємо у нашому магазині 🛒", reply_markup=shop_kb)
 
-# Add your next handlers here (товари/корзина/адмін-дії)
+# --- Старт сервера ---
+async def on_startup(app):
+    # встановлюємо вебхук для Telegram
+    await bot.set_webhook(WEBHOOK_URL)
+
+
+async def on_shutdown(app):
+    await bot.session.close()
+
+
+def main():
+    app = web.Application()
+    app.router.add_post("/webhook", handle_webhook)
+    app.on_startup.append(on_startup)
+    app.on_shutdown.append(on_shutdown)
+    web.run_app(app, host="0.0.0.0", port=int(os.getenv("PORT", 8080)))
+
+
+if __name__ == "__main__":
+    main()
