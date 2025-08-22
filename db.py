@@ -1,71 +1,36 @@
 import sqlite3
 
-DB_NAME = "shop.db"
+# Підключення до бази
+conn = sqlite3.connect("shop.db")
+cursor = conn.cursor()
 
+# Створюємо таблицю продуктів, якщо її ще немає
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS products (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    price REAL NOT NULL,
+    description TEXT
+)
+""")
+conn.commit()
 
-def init_db():
-    conn = sqlite3.connect(DB_NAME)
-    cur = conn.cursor()
-
-    # Таблиця товарів
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS products (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            description TEXT,
-            price REAL NOT NULL,
-            photo TEXT
-        )
-    """)
-
-    # Таблиця корзини (тимчасово, потім зробимо orders)
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS cart (
-            user_id INTEGER,
-            product_id INTEGER,
-            quantity INTEGER DEFAULT 1,
-            PRIMARY KEY (user_id, product_id)
-        )
-    """)
-
+# Додаємо продукт
+def add_product(name: str, price: float, description: str):
+    cursor.execute("INSERT INTO products (name, price, description) VALUES (?, ?, ?)", (name, price, description))
     conn.commit()
-    conn.close()
 
+# Отримати всі продукти
+def get_products():
+    cursor.execute("SELECT * FROM products")
+    return cursor.fetchall()
 
-# --- ФУНКЦІЇ ДЛЯ РОБОТИ З ТОВАРАМИ ---
-
-def add_product(name: str, description: str, price: float, photo: str = None):
-    conn = sqlite3.connect(DB_NAME)
-    cur = conn.cursor()
-    cur.execute(
-        "INSERT INTO products (name, description, price, photo) VALUES (?, ?, ?, ?)",
-        (name, description, price, photo)
-    )
-    conn.commit()
-    conn.close()
-
-
-def delete_product(product_id: int):
-    conn = sqlite3.connect(DB_NAME)
-    cur = conn.cursor()
-    cur.execute("DELETE FROM products WHERE id = ?", (product_id,))
-    conn.commit()
-    conn.close()
-
-
-def get_all_products():
-    conn = sqlite3.connect(DB_NAME)
-    cur = conn.cursor()
-    cur.execute("SELECT id, name, description, price, photo FROM products")
-    products = cur.fetchall()
-    conn.close()
-    return products
-
-
+# Отримати один продукт
 def get_product(product_id: int):
-    conn = sqlite3.connect(DB_NAME)
-    cur = conn.cursor()
-    cur.execute("SELECT id, name, description, price, photo FROM products WHERE id = ?", (product_id,))
-    product = cur.fetchone()
-    conn.close()
-    return product
+    cursor.execute("SELECT * FROM products WHERE id=?", (product_id,))
+    return cursor.fetchone()
+
+# Видалити продукт
+def delete_product(product_id: int):
+    cursor.execute("DELETE FROM products WHERE id=?", (product_id,))
+    conn.commit()
