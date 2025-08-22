@@ -3,6 +3,7 @@ from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 from aiogram.types import Message
 from aiohttp import web
+from db import init_db   # 👈 підключили базу
 
 TOKEN = os.getenv("BOT_TOKEN")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # https://your-service.onrender.com/webhook
@@ -27,6 +28,8 @@ async def handle_webhook(request):
 
 # --- Старт сервера ---
 async def on_startup(app):
+    # ініціалізація бази
+    init_db()
     # встановлюємо вебхук для Telegram
     await bot.set_webhook(WEBHOOK_URL)
 
