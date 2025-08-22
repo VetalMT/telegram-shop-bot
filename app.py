@@ -1,16 +1,22 @@
 import os
-from aiogram import Bot, Dispatcher, types, F
+from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
 from aiogram.types import Message
+from aiogram.fsm.storage.memory import MemoryStorage
 from aiohttp import web
-from db import init_db   # 👈 підключили базу
+
+from handlers_admin import admin_router
+from db import init_db
 
 TOKEN = os.getenv("BOT_TOKEN")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # https://your-service.onrender.com/webhook
 ADMIN_ID = os.getenv("ADMIN_ID")
 
 bot = Bot(token=TOKEN)
-dp = Dispatcher()
+dp = Dispatcher(storage=MemoryStorage())
+
+# --- підключаємо адмінський роутер ---
+dp.include_router(admin_router)
 
 
 @dp.message(Command("start"))
