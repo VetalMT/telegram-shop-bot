@@ -1,11 +1,20 @@
-
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 
-shop_kb = ReplyKeyboardMarkup(resize_keyboard=True)
-shop_kb.add(KeyboardButton("🛍 Переглянути товари"))
-shop_kb.add(KeyboardButton("🛒 Корзина"))
+# Клавіатура для користувача
+shop_kb = ReplyKeyboardMarkup(
+    keyboard=[
+        [KeyboardButton(text="🛍 Переглянути товари")],
+        [KeyboardButton(text="🛒 Корзина")]
+    ],
+    resize_keyboard=True
+)
 
-admin_kb = ReplyKeyboardMarkup(resize_keyboard=True)
-admin_kb.add(KeyboardButton("➕ Додати товар"))
-admin_kb.add(KeyboardButton("❌ Видалити товар"))
-admin_kb.add(KeyboardButton("📦 Переглянути товари"))
+# Клавіатура для адміністратора
+admin_kb = ReplyKeyboardMarkup(
+    keyboard=[
+        [KeyboardButton(text="➕ Додати товар")],
+        [KeyboardButton(text="❌ Видалити товар")],
+        [KeyboardButton(text="📦 Переглянути товари")]
+    ],
+    resize_keyboard=True
+)
