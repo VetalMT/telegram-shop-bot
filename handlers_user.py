@@ -42,3 +42,44 @@ async def add_to_cart(message: Message):
 async def view_cart(message: Message):
     user_id = message.from_user.id
     items = await get_cart(user_id)
+    if not items:
+        return await message.answer("🛒 Ваша корзина порожня.")
+
+    text = "🛒 Ваша корзина:\n\n"
+    total = 0
+
+    for i in items:
+        text += f"📦 {i['name']} — {i['price']} грн x {i['qty']}\n"
+        total += i['price'] * i['qty']
+
+    text += f"\n💰 Всього: {total} грн"
+    text += "\n\nЩоб очистити корзину введіть `/clear`.\nЩоб оформити замовлення введіть `/order`."
+    await message.answer(text)
+
+# --- Очистка корзини ---
+@user_router.message(F.text == "/clear")
+async def clear_cart(message: Message):
+    user_id = message.from_user.id
+    await db_clear_cart(user_id)
+    await message.answer("🗑 Корзина очищена.")
+
+# --- Оформлення замовлення ---
+@user_router.message(F.text == "/order")
+async def make_order(message: Message):
+    user_id = message.from_user.id
+    items = await get_cart(user_id)
+    if not items:
+        return await message.answer("🛒 Корзина порожня.")
+
+    text = "✅ Ваше замовлення:\n\n"
+    total = 0
+
+    for i in items:
+        text += f"📦 {i['name']} — {i['price']} грн x {i['qty']}\n"
+        total += i['price'] * i['qty']
+
+    text += f"\n💰 Загальна сума: {total} грн"
+    text += "\n\n🔔 Наш менеджер скоро звʼяжеться з вами для підтвердження замовлення."
+
+    await db_clear_cart(user_id)
+    await message.answer(text)
