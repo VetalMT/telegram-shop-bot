@@ -1,5 +1,6 @@
-# Встав сюди свій токен і айді адміна
-BOT_TOKEN = "8327744046:AAHJea2egeTg8K5I0x5h6vA3qWu_JPUR5jg"
-ADMIN_ID = "469040941"
-WEBHOOK_URL = "https://telegram-shop-bot-z03b.onrender.com/webhook"
+import os
 
+# Фолбеки для локального запуску. На Render вистачить ENV.
+BOT_TOKEN = os.getenv("BOT_TOKEN", "PASTE_YOUR_TOKEN_HERE")
+ADMIN_ID = int(os.getenv("ADMIN_ID", "123456789"))  # твій Telegram ID
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # напр.: https://your-service.onrender.com/webhook
