@@ -1,39 +1,44 @@
 import os
-from aiogram import Bot, Dispatcher
+from aiohttp import web
+from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
 from aiogram.types import Message
-from aiohttp import web
 
-from config import BOT_TOKEN, ADMIN_ID
-from keyboards import shop_kb
-from handlers_admin import admin_router
+from config import BOT_TOKEN, ADMIN_ID, WEBHOOK_URL
 
-TOKEN = BOT_TOKEN
-WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # наприклад: https://твій_сайт.onrender.com/webhook
-
-bot = Bot(token=TOKEN)
+# --- Ініціалізація бота та диспетчера ---
+bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
-dp.include_router(admin_router)
 
-# Команда /start
+# --- Клавіатури (тимчасово прості приклади) ---
+from keyboards import shop_kb, admin_kb
+
+# --- Стартові команди ---
 @dp.message(Command("start"))
 async def cmd_start(message: Message):
-    await message.answer("👋 Привіт! Бот магазину готовий до роботи.", reply_markup=shop_kb)
+    if str(message.from_user.id) == str(ADMIN_ID):
+        await message.answer("👋 Привіт, адмін! Ось ваша панель.", reply_markup=admin_kb)
+    else:
+        await message.answer("👋 Привіт! Ласкаво просимо до магазину.", reply_markup=shop_kb)
 
 # --- Обробка вебхука ---
 async def handle_webhook(request):
     data = await request.json()
     update = types.Update(**data)
     await dp.feed_update(bot, update)
-    return web.Response()
+    return web.Response(text="ok")
 
 # --- Старт сервера ---
 async def on_startup(app):
+    # встановлюємо вебхук для Telegram
     await bot.set_webhook(WEBHOOK_URL)
+    print(f"Webhook встановлено на {WEBHOOK_URL}")
 
 async def on_shutdown(app):
     await bot.session.close()
+    print("Бот завершив роботу.")
 
+# --- Головна функція ---
 def main():
     app = web.Application()
     app.router.add_post("/webhook", handle_webhook)
