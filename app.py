@@ -8,7 +8,6 @@ from aiohttp import web
 from handlers_admin import setup_admin_handlers
 from handlers_shop import setup_shop_handlers
 from handlers_user import user_router
-from db import init_db
 
 # 🔧 Логування
 logging.basicConfig(level=logging.INFO)
@@ -24,11 +23,13 @@ WEBHOOK_URL = f"{os.getenv('RENDER_EXTERNAL_URL')}/webhook"
 # ================== Налаштування бота ==================
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
-dp.include_router(user_router)  # підключаємо користувацькі хендлери
 
 # ================== Хендлери ==================
 setup_admin_handlers(dp)
 setup_shop_handlers(dp)
+
+# Підключаємо router користувачів
+dp.include_router(user_router)
 
 # ================== Webhook ==================
 async def handle_webhook(request: web.Request):
@@ -37,7 +38,6 @@ async def handle_webhook(request: web.Request):
     return web.Response()
 
 async def on_startup(app: web.Application):
-    await init_db()  # Ініціалізація БД
     await bot.set_webhook(WEBHOOK_URL)
     logging.info(f"✅ Webhook встановлено: {WEBHOOK_URL}")
 
