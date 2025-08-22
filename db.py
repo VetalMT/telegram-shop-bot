@@ -1,36 +1,44 @@
-import sqlite3
+import aiosqlite
 
-# Підключення до бази
-conn = sqlite3.connect("shop.db")
-cursor = conn.cursor()
+DB_PATH = "shop.db"
 
-# Створюємо таблицю продуктів, якщо її ще немає
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS products (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    price REAL NOT NULL,
-    description TEXT
-)
-""")
-conn.commit()
+async def init_db():
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("""
+        CREATE TABLE IF NOT EXISTS products (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            description TEXT,
+            price REAL NOT NULL
+        )
+        """)
+        await db.commit()
 
-# Додаємо продукт
-def add_product(name: str, price: float, description: str):
-    cursor.execute("INSERT INTO products (name, price, description) VALUES (?, ?, ?)", (name, price, description))
-    conn.commit()
+async def add_product(name: str, description: str, price: float):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT INTO products (name, description, price) VALUES (?, ?, ?)",
+            (name, description, price)
+        )
+        await db.commit()
 
-# Отримати всі продукти
-def get_products():
-    cursor.execute("SELECT * FROM products")
-    return cursor.fetchall()
+async def get_products():
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute("SELECT id, name, description, price FROM products")
+        rows = await cursor.fetchall()
+        await cursor.close()
+        return [{"id": r[0], "name": r[1], "description": r[2], "price": r[3]} for r in rows]
 
-# Отримати один продукт
-def get_product(product_id: int):
-    cursor.execute("SELECT * FROM products WHERE id=?", (product_id,))
-    return cursor.fetchone()
+async def get_product(product_id: int):
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute("SELECT id, name, description, price FROM products WHERE id = ?", (product_id,))
+        row = await cursor.fetchone()
+        await cursor.close()
+        if row:
+            return {"id": row[0], "name": row[1], "description": row[2], "price": row[3]}
+        return None
 
-# Видалити продукт
-def delete_product(product_id: int):
-    cursor.execute("DELETE FROM products WHERE id=?", (product_id,))
-    conn.commit()
+async def delete_product(product_id: int):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("DELETE FROM products WHERE id = ?", (product_id,))
+        await db.commit()
