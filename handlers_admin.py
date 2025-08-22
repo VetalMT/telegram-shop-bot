@@ -1,105 +1,87 @@
 from aiogram import Router, F
-from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery, InputMediaPhoto
-from aiogram.fsm.state import StatesGroup, State
+from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import StatesGroup, State
+from aiogram.utils.keyboard import InlineKeyboardBuilder
+from config import ADMIN_ID, products
 
-from config import ADMIN_ID
-from keyboards import admin_kb, delete_product_kb
-from db import add_product, get_products, delete_product, count_products
+router = Router()
 
-admin_router = Router()
+class AddProduct(StatesGroup):
+    waiting_for_name = State()
+    waiting_for_description = State()
+    waiting_for_price = State()
+    waiting_for_photo = State()
 
-class AddProductFSM(StatesGroup):
-    name = State()
-    description = State()
-    price = State()
-    photo = State()
+# --- Додати товар ---
+@router.message(Command("add"))
+async def admin_add(message: Message, state: FSMContext):
+    if str(message.from_user.id) != ADMIN_ID:
+        return await message.answer("⛔ Доступ заборонено.")
+    await state.set_state(AddProduct.waiting_for_name)
+    await message.answer("Введіть назву товару:")
 
-@admin_router.message(Command("admin"))
-async def admin_panel(msg: Message):
-    if msg.from_user.id != ADMIN_ID:
-        return await msg.answer("⛔️ Доступ тільки для адміністратора.")
-    await msg.answer("Адмін-панель:", reply_markup=admin_kb)
+@router.message(AddProduct.waiting_for_name)
+async def add_name(message: Message, state: FSMContext):
+    await state.update_data(name=message.text)
+    await state.set_state(AddProduct.waiting_for_description)
+    await message.answer("Введіть опис товару:")
 
-# ---- ДОДАТИ ТОВАР ----
-@admin_router.message(F.text == "➕ Додати товар")
-async def add_start(msg: Message, state: FSMContext):
-    if msg.from_user.id != ADMIN_ID:
-        return
-    await state.set_state(AddProductFSM.name)
-    await msg.answer("Введіть назву товару:")
+@router.message(AddProduct.waiting_for_description)
+async def add_desc(message: Message, state: FSMContext):
+    await state.update_data(description=message.text)
+    await state.set_state(AddProduct.waiting_for_price)
+    await message.answer("Введіть ціну товару:")
 
-@admin_router.message(AddProductFSM.name)
-async def add_name(msg: Message, state: FSMContext):
-    await state.update_data(name=msg.text.strip())
-    await state.set_state(AddProductFSM.description)
-    await msg.answer("Опишіть товар:")
-
-@admin_router.message(AddProductFSM.description)
-async def add_desc(msg: Message, state: FSMContext):
-    await state.update_data(description=msg.text.strip())
-    await state.set_state(AddProductFSM.price)
-    await msg.answer("Вкажіть ціну (число):")
-
-@admin_router.message(AddProductFSM.price)
-async def add_price(msg: Message, state: FSMContext):
+@router.message(AddProduct.waiting_for_price)
+async def add_price(message: Message, state: FSMContext):
     try:
-        price = float(msg.text.replace(",", "."))
-    except Exception:
-        return await msg.answer("❗️ Невірний формат. Вкажіть число, напр. 199.99")
+        price = float(message.text)
+    except ValueError:
+        return await message.answer("❌ Введіть коректну ціну (число).")
     await state.update_data(price=price)
-    await state.set_state(AddProductFSM.photo)
-    await msg.answer("Надішліть фото товару (можна пропустити командою /skip).")
+    await state.set_state(AddProduct.waiting_for_photo)
+    await message.answer("Надішліть фото товару:")
 
-@admin_router.message(Command("skip"), AddProductFSM.photo)
-async def skip_photo(msg: Message, state: FSMContext):
+@router.message(AddProduct.waiting_for_photo, F.photo)
+async def add_photo(message: Message, state: FSMContext):
     data = await state.get_data()
-    product_id = await add_product(
-        data["name"], data["description"], data["price"], photo_id=None
-    )
+    products.append({
+        "id": len(products) + 1,
+        "name": data["name"],
+        "description": data["description"],
+        "price": data["price"],
+        "photo": message.photo[-1].file_id  # ✅ зберігаємо file_id фото
+    })
     await state.clear()
-    await msg.answer(f"✅ Товар #{product_id} додано без фото.")
+    await message.answer("✅ Товар додано!")
 
-@admin_router.message(AddProductFSM.photo, F.photo)
-async def add_photo(msg: Message, state: FSMContext):
-    data = await state.get_data()
-    photo_id = msg.photo[-1].file_id
-    product_id = await add_product(
-        data["name"], data["description"], data["price"], photo_id=photo_id
-    )
-    await state.clear()
-    await msg.answer(f"✅ Товар #{product_id} додано.")
+# --- Переглянути товари ---
+@router.message(Command("list"))
+async def admin_list(message: Message):
+    if str(message.from_user.id) != ADMIN_ID:
+        return await message.answer("⛔ Доступ заборонено.")
+    if not products:
+        return await message.answer("📭 Немає товарів.")
+    for p in products:
+        kb = InlineKeyboardBuilder()
+        kb.button(text="❌ Видалити", callback_data=f"delete:{p['id']}")
+        kb.adjust(1)
+        await message.answer_photo(
+            photo=p["photo"],
+            caption=f"<b>{p['name']}</b>\n{p['description']}\n💰 {p['price']} грн",
+            reply_markup=kb.as_markup()
+        )
 
-# ---- ПЕРЕГЛЯД/ВИДАЛЕННЯ ----
-@admin_router.message(F.text == "📦 Переглянути товари")
-async def admin_view_products(msg: Message):
-    if msg.from_user.id != ADMIN_ID:
-        return
-    items = await get_products(limit=20, offset=0)
-    if not items:
-        return await msg.answer("Список товарів порожній.")
-    for pid, name, description, price, photo_id in items:
-        text = f"#{pid} • <b>{name}</b>\n{description}\nЦіна: {price:.2f} ₴"
-        if photo_id:
-            await msg.bot.send_photo(msg.chat.id, photo=photo_id, caption=text, parse_mode="HTML",
-                                     reply_markup=delete_product_kb(pid))
-        else:
-            await msg.answer(text, parse_mode="HTML", reply_markup=delete_product_kb(pid))
-
-@admin_router.message(F.text == "❌ Видалити товар")
-async def delete_hint(msg: Message):
-    if msg.from_user.id != ADMIN_ID:
-        return
-    await msg.answer("Натисніть «🗑 Видалити» під потрібним товаром у списку «📦 Переглянути товари».")
-
-@admin_router.callback_query(F.data.startswith("adm_del:"))
+# --- Видалити товар ---
+@router.callback_query(F.data.startswith("delete:"))
 async def admin_delete_cb(cb: CallbackQuery):
-    if cb.from_user.id != ADMIN_ID:
-        return await cb.answer("Нема доступу", show_alert=True)
-    pid = int(cb.data.split(":")[1])
-    ok = await delete_product(pid)
-    if ok:
-        await cb.message.edit_text("🗑 Товар видалено.")
-    else:
-        await cb.answer("Не знайдено", show_alert=True)
+    product_id = int(cb.data.split(":")[1])
+    global products
+    products = [p for p in products if p["id"] != product_id]
+    try:
+        await cb.message.edit_caption("🗑 Товар видалено.")
+    except:
+        await cb.message.answer("🗑 Товар видалено.")
+    await cb.answer()
