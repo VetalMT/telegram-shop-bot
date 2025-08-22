@@ -1,51 +1,38 @@
-import os
-from aiohttp import web
-from aiogram import Bot, Dispatcher, types
-from aiogram.types import Message
-from aiogram.filters import CommandStart
-
-from config import BOT_TOKEN, WEBHOOK_URL
-from keyboards import shop_kb
-from db import init_db
+import asyncio
+from aiogram import Bot, Dispatcher
+from config import TOKEN
 from handlers_admin import admin_router
 from handlers_shop import shop_router
+import aiosqlite
 
-# --- BOT/DP ---
-bot = Bot(token=BOT_TOKEN)
-dp = Dispatcher()
+async def on_startup():
+    # створюємо БД, якщо немає
+    async with aiosqlite.connect("shop.db") as db:
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS products (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                description TEXT,
+                price REAL NOT NULL,
+                photo TEXT
+            )
+        """)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS cart (
+                user_id INTEGER,
+                product_id INTEGER,
+                quantity INTEGER DEFAULT 1
+            )
+        """)
+        await db.commit()
 
-# підключаємо всі хендлери
-dp.include_router(admin_router)
-dp.include_router(shop_router)
-
-# базовий /start (для випадку, якщо роутер не перехопив)
-@dp.message(CommandStart())
-async def base_start(msg: Message):
-    await msg.answer("👋 Привіт! Це магазин у Telegram.", reply_markup=shop_kb)
-
-# --- Webhook handler ---
-async def handle_webhook(request: web.Request) -> web.Response:
-    data = await request.json()
-    update = types.Update(**data)
-    await dp.feed_update(bot, update)
-    return web.Response(text="ok")
-
-# --- Startup/Shutdown ---
-async def on_startup(app: web.Application):
-    await init_db()
-    # встановлюємо вебхук (тільки якщо URL вказаний)
-    if WEBHOOK_URL:
-        await bot.set_webhook(WEBHOOK_URL)
-
-async def on_shutdown(app: web.Application):
-    await bot.session.close()
-
-def main():
-    app = web.Application()
-    app.router.add_post("/webhook", handle_webhook)
-    app.on_startup.append(on_startup)
-    app.on_shutdown.append(on_shutdown)
-    web.run_app(app, host="0.0.0.0", port=int(os.getenv("PORT", 8080)))
+async def main():
+    await on_startup()
+    bot = Bot(token=TOKEN)
+    dp = Dispatcher()
+    dp.include_router(admin_router)
+    dp.include_router(shop_router)
+    await dp.start_polling(bot)
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
