@@ -3,9 +3,13 @@ from aiogram.types import Message
 from aiogram.filters import Command
 
 from keyboards import shop_kb
-from db import get_products, get_cart, add_to_cart as db_add_to_cart, clear_cart as db_clear_cart
+from db import get_products
 
 user_router = Router()
+
+# тимчасове збереження корзини (в памʼяті)
+# {user_id: [product_id, product_id, ...]}
+cart = {}
 
 # --- Старт ---
 @user_router.message(Command("start"))
@@ -15,42 +19,37 @@ async def start_cmd(message: Message):
 # --- Перегляд товарів ---
 @user_router.message(F.text == "🛍 Каталог")
 async def view_products(message: Message):
-    products = await get_products()
+    products = await get_products()  # DB функція асинхронна, треба await
     if not products:
         return await message.answer("📭 Поки що немає товарів.")
 
     text = "📦 Наші товари:\n\n"
     for p in products:
         text += f"🆔 {p[0]} | {p[1]} — {p[3]} грн\n"
-    text += "\nЩоб додати товар у корзину, введіть команду:\n`/add ID` (де ID — номер товару)"
-    await message.answer(text, parse_mode="Markdown")
+    text += "\nЩоб додати товар у корзину, натисніть на кнопку поруч з товаром."
+    await message.answer(text)
 
-# --- Додати товар у корзину ---
-@user_router.message(F.text.startswith("/add"))
-async def add_to_cart(message: Message):
-    try:
-        product_id = int(message.text.split()[1])
-    except:
-        return await message.answer("❌ Використовуйте формат: `/add ID`", parse_mode="Markdown")
-
-    user_id = message.from_user.id
-    await db_add_to_cart(user_id, product_id)
-    await message.answer(f"✅ Товар з ID {product_id} додано у корзину.")
+# --- Додати товар у корзину (через callback з кнопки) ---
+# Тут залишаємо тільки inline кнопки з keyboards.py
+# Тобто текстовий /add більше не використовується
 
 # --- Перегляд корзини ---
 @user_router.message(F.text == "🛒 Кошик")
 async def view_cart(message: Message):
     user_id = message.from_user.id
-    items = await get_cart(user_id)
-    if not items:
+    if user_id not in cart or not cart[user_id]:
         return await message.answer("🛒 Ваша корзина порожня.")
 
+    products = await get_products()
+    user_cart = cart[user_id]
     text = "🛒 Ваша корзина:\n\n"
     total = 0
 
-    for i in items:
-        text += f"📦 {i['name']} — {i['price']} грн x {i['qty']}\n"
-        total += i['price'] * i['qty']
+    for pid in user_cart:
+        for p in products:
+            if p[0] == pid:
+                text += f"📦 {p[1]} — {p[3]} грн\n"
+                total += p[3]
 
     text += f"\n💰 Всього: {total} грн"
     text += "\n\nЩоб очистити корзину введіть `/clear`.\nЩоб оформити замовлення введіть `/order`."
@@ -60,26 +59,31 @@ async def view_cart(message: Message):
 @user_router.message(F.text == "/clear")
 async def clear_cart(message: Message):
     user_id = message.from_user.id
-    await db_clear_cart(user_id)
-    await message.answer("🗑 Корзина очищена.")
+    cart[user_id] = []
+    await message.answer("🗑 Кошик очищено.")
 
 # --- Оформлення замовлення ---
 @user_router.message(F.text == "/order")
 async def make_order(message: Message):
     user_id = message.from_user.id
-    items = await get_cart(user_id)
-    if not items:
-        return await message.answer("🛒 Корзина порожня.")
+    if user_id not in cart or not cart[user_id]:
+        return await message.answer("🛒 Кошик порожній.")
 
+    products = await get_products()
+    user_cart = cart[user_id]
     text = "✅ Ваше замовлення:\n\n"
     total = 0
 
-    for i in items:
-        text += f"📦 {i['name']} — {i['price']} грн x {i['qty']}\n"
-        total += i['price'] * i['qty']
+    for pid in user_cart:
+        for p in products:
+            if p[0] == pid:
+                text += f"📦 {p[1]} — {p[3]} грн\n"
+                total += p[3]
 
     text += f"\n💰 Загальна сума: {total} грн"
     text += "\n\n🔔 Наш менеджер скоро звʼяжеться з вами для підтвердження замовлення."
 
-    await db_clear_cart(user_id)
+    # очищаємо корзину після замовлення
+    cart[user_id] = []
+
     await message.answer(text)
