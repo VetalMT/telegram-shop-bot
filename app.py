@@ -2,7 +2,9 @@ import logging
 import os
 import asyncio
 
-from aiogram import Bot, Dispatcher
+from aiogram import Bot, Dispatcher, types
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+from aiogram.filters import Command
 from aiohttp import web
 
 # наші модулі
@@ -17,6 +19,11 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 if not BOT_TOKEN:
     raise ValueError("❌ Не вказано BOT_TOKEN в змінних оточення!")
 
+# 🛡️ ID адміністратора
+ADMIN_ID = int(os.getenv("ADMIN_ID", 0))
+if not ADMIN_ID:
+    raise ValueError("❌ Не вказано ADMIN_ID в змінних оточення!")
+
 # 🌍 Webhook URL (Render виставляє RENDER_EXTERNAL_URL)
 RENDER_EXTERNAL_URL = os.getenv("RENDER_EXTERNAL_URL")
 if not RENDER_EXTERNAL_URL:
@@ -28,9 +35,34 @@ WEBHOOK_URL = f"{RENDER_EXTERNAL_URL}/webhook"
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-# Підключаємо роутери
+# ================== Клавіатури ==================
+main_kb = ReplyKeyboardMarkup(
+    keyboard=[
+        [KeyboardButton(text="📦 Каталог"), KeyboardButton(text="🛒 Корзина")]
+    ],
+    resize_keyboard=True
+)
+
+admin_kb = ReplyKeyboardMarkup(
+    keyboard=[
+        [KeyboardButton(text="➕ Додати товар")],
+        [KeyboardButton(text="❌ Видалити товар")],
+        [KeyboardButton(text="📋 Переглянути товари")]
+    ],
+    resize_keyboard=True
+)
+
+# ================== Роутери ==================
 dp.include_router(admin_router)
 dp.include_router(user_router)
+
+# ================== Адмін / старт ==================
+@dp.message(Command("start"))
+async def start_handler(message: types.Message):
+    if message.from_user.id == ADMIN_ID:
+        await message.answer("Вітаю, адміністратор!", reply_markup=admin_kb)
+    else:
+        await message.answer("Вітаю у магазині!", reply_markup=main_kb)
 
 # ================== Webhook ==================
 async def handle_webhook(request: web.Request):
@@ -53,6 +85,7 @@ async def on_shutdown(app: web.Application):
 def main():
     app = web.Application()
     app.router.add_post("/webhook", handle_webhook)
+
     # опційно простий healthcheck на /
     async def health(request: web.Request):
         return web.Response(text="OK")
