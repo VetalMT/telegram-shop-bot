@@ -6,6 +6,9 @@ DB_PATH = "shop.db"
 async def init_db():
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("""
+        PRAGMA foreign_keys = ON;
+        """)
+        await db.execute("""
         CREATE TABLE IF NOT EXISTS products(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
@@ -66,7 +69,7 @@ async def add_product(name: str, description: str, price: float, photo_id: Optio
         await db.commit()
         return cur.lastrowid
 
-async def get_products(limit: int = 20, offset: int = 0) -> List[Tuple]:
+async def get_products(limit: int = 50, offset: int = 0) -> List[Tuple]:
     async with aiosqlite.connect(DB_PATH) as db:
         cur = await db.execute(
             "SELECT id, name, description, price, photo_id FROM products ORDER BY id DESC LIMIT ? OFFSET ?",
@@ -106,7 +109,6 @@ async def _get_or_create_cart_id(db, user_id: int) -> int:
 async def add_to_cart(user_id: int, product_id: int, qty: int = 1):
     async with aiosqlite.connect(DB_PATH) as db:
         cart_id = await _get_or_create_cart_id(db, user_id)
-        # try update qty, else insert
         cur = await db.execute(
             "UPDATE cart_items SET qty=qty+? WHERE cart_id=? AND product_id=?",
             (qty, cart_id, product_id)
