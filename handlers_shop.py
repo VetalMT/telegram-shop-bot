@@ -1,12 +1,9 @@
-from aiogram import Dispatcher, F
+from aiogram import Router
+from aiogram.filters import Command
 from aiogram.types import Message
 
+shop_router = Router()
 
-# Приклад команди /shop
+@shop_router.message(Command("shop"))
 async def shop_start(message: Message):
     await message.answer("🛍️ Ласкаво просимо в магазин!")
-
-
-# Реєстрація хендлерів магазину
-def setup_shop_handlers(dp: Dispatcher):
-    dp.message.register(shop_start, F.text == "/shop")
