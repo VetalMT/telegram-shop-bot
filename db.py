@@ -5,9 +5,7 @@ DB_PATH = "shop.db"
 
 async def init_db():
     async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("""
-        PRAGMA foreign_keys = ON;
-        """)
+        await db.execute("PRAGMA foreign_keys = ON;")
         await db.execute("""
         CREATE TABLE IF NOT EXISTS products(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
