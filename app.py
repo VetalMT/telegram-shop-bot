@@ -1,12 +1,11 @@
-import asyncio
 import logging
 import os
 
 from aiogram import Bot, Dispatcher
 from aiohttp import web
 
+from db import init_db
 from handlers_admin import setup_admin_handlers
-from handlers_shop import setup_shop_handlers
 from handlers_user import user_router
 
 # 🔧 Логування
@@ -18,18 +17,18 @@ if not BOT_TOKEN:
     raise ValueError("❌ Не вказано BOT_TOKEN в змінних оточення!")
 
 # 🌍 URL твого додатку (Render надає https://...)
-WEBHOOK_URL = f"{os.getenv('RENDER_EXTERNAL_URL')}/webhook"
+RENDER_URL = os.getenv("RENDER_EXTERNAL_URL")
+if not RENDER_URL:
+    raise ValueError("❌ Не вказано RENDER_EXTERNAL_URL!")
+WEBHOOK_URL = f"{RENDER_URL}/webhook"
 
 # ================== Налаштування бота ==================
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-# ================== Хендлери ==================
-setup_admin_handlers(dp)
-setup_shop_handlers(dp)
-
-# Підключаємо router користувачів
-dp.include_router(user_router)
+# ================== Підключення хендлерів ==================
+setup_admin_handlers(dp)          # адмін-панель
+dp.include_router(user_router)    # користувачі (каталог/кошик/замовлення)
 
 # ================== Webhook ==================
 async def handle_webhook(request: web.Request):
@@ -38,6 +37,11 @@ async def handle_webhook(request: web.Request):
     return web.Response()
 
 async def on_startup(app: web.Application):
+    # 1) Ініціалізація БД (створить таблиці, якщо їх немає)
+    await init_db()
+    logging.info("🗄️ База даних ініціалізована")
+
+    # 2) Ставимо вебхук
     await bot.set_webhook(WEBHOOK_URL)
     logging.info(f"✅ Webhook встановлено: {WEBHOOK_URL}")
 
