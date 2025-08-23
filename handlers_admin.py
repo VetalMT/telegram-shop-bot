@@ -1,68 +1,45 @@
-import os
-from aiogram import Dispatcher, F
-from aiogram.types import Message
-from keyboards import admin_kb
-from db import add_product, delete_product, get_products
+from aiogram import Router, types, F
+from aiogram.filters import Command
 
-ADMIN_ID = int(os.getenv("ADMIN_ID", "123456789"))
+admin_router = Router()
 
-# --- Старт адмін-панелі ---
-async def admin_start(message: Message):
+# ID адміна (замінити на свій)
+ADMIN_ID = 123456789
+
+# 📌 Меню для адміна
+@admin_router.message(Command("admin"))
+async def cmd_admin(message: types.Message):
     if message.from_user.id != ADMIN_ID:
-        return await message.answer("❌ У вас немає доступу до адмін-панелі.")
-    await message.answer("🔧 Ви в адмін-панелі.", reply_markup=admin_kb)
-    await message.answer(
-        "Команди:\n"
-        "• /addprod Назва | Опис | Ціна\n"
-        "• /delprod ID\n"
-        "• /viewprod"
+        await message.answer("⛔ У вас немає прав адміністратора.")
+        return
+
+    keyboard = types.ReplyKeyboardMarkup(
+        keyboard=[
+            [types.KeyboardButton(text="➕ Додати товар")],
+            [types.KeyboardButton(text="❌ Видалити товар")],
+            [types.KeyboardButton(text="📦 Переглянути товари")],
+        ],
+        resize_keyboard=True
     )
+    await message.answer("⚙️ Адмін-панель", reply_markup=keyboard)
 
-# --- Додати товар ---
-async def add_product_cmd(message: Message):
+# 📌 Додавання товару
+@admin_router.message(F.text == "➕ Додати товар")
+async def admin_add_product(message: types.Message):
     if message.from_user.id != ADMIN_ID:
         return
-    try:
-        _, data = message.text.split(" ", 1)
-        name, description, price = [x.strip() for x in data.split("|")]
-        price = float(price)
-    except Exception:
-        return await message.answer("❌ Формат:\n/addprod Назва | Опис | Ціна")
+    await message.answer("📸 Надішліть фото товару")
 
-    product_id = await add_product(name, description, price, None)
-    await message.answer(f"✅ Товар '{name}' додано (ID: {product_id})")
-
-# --- Видалити товар ---
-async def delete_product_cmd(message: Message):
+# 📌 Видалення товару
+@admin_router.message(F.text == "❌ Видалити товар")
+async def admin_delete_product(message: types.Message):
     if message.from_user.id != ADMIN_ID:
         return
-    try:
-        product_id = int(message.text.split()[1])
-    except Exception:
-        return await message.answer("❌ Формат: /delprod ID")
+    await message.answer("Видалення товарів ще не реалізовано.")
 
-    deleted = await delete_product(product_id)
-    if deleted:
-        await message.answer(f"🗑 Товар з ID {product_id} видалено.")
-    else:
-        await message.answer(f"❌ Товар з ID {product_id} не знайдено.")
-
-# --- Перегляд товарів ---
-async def view_products_cmd(message: Message):
+# 📌 Перегляд товарів
+@admin_router.message(F.text == "📦 Переглянути товари")
+async def admin_view_products(message: types.Message):
     if message.from_user.id != ADMIN_ID:
         return
-    products = await get_products()
-    if not products:
-        return await message.answer("📭 Поки що немає товарів.")
-
-    text = "📦 Товари:\n\n"
-    for p in products:
-        text += f"🆔 {p[0]} | {p[1]} — {p[3]} грн\n"
-    await message.answer(text)
-
-# --- Реєстрація хендлерів ---
-def setup_admin_handlers(dp: Dispatcher):
-    dp.message.register(admin_start, F.text == "/admin")
-    dp.message.register(add_product_cmd, F.text.startswith("/addprod"))
-    dp.message.register(delete_product_cmd, F.text.startswith("/delprod"))
-    dp.message.register(view_products_cmd, F.text == "/viewprod")
+    await message.answer("📋 Товари:\n1. Товар 1 - 100 грн\n2. Товар 2 - 200 грн")
