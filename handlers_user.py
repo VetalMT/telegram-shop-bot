@@ -11,19 +11,18 @@ user_router = Router(name="user")
 # ---------- START і базові кнопки ----------
 @user_router.message(Command("start"))
 async def cmd_start(message: types.Message):
-    # Лише одне вітальне повідомлення без дублювання меню
     await message.answer(
         "Вітаю! Оберіть дію знизу ⬇️",
         reply_markup=shop_kb
     )
 
 # Натиснута нижня кнопка "Каталог"
-@user_router.message(F.text == "🛍 Каталог")
+@user_router.message(F.text.in_(["📦 Каталог", "🛍 Каталог"]))
 async def open_catalog_from_reply(message: types.Message):
     await show_catalog(message)
 
-# Натиснута нижня кнопка "Кошик"
-@user_router.message(F.text == "🛒 Кошик")
+# Натиснута нижня кнопка "Корзина/Кошик"
+@user_router.message(F.text.in_(["🛒 Корзина", "🛒 Кошик"]))
 async def open_cart_from_reply(message: types.Message):
     await show_cart(message.chat.id, message)
 
@@ -96,7 +95,6 @@ async def cb_open_cart(callback: types.CallbackQuery):
 async def cb_cart_remove(callback: types.CallbackQuery):
     await callback.answer("♻️ Видалено 1 шт.")
     product_id = int(callback.data.split(":")[2])
-    # Зменшуємо кількість на 1: простий підхід — видалити товар та додати назад qty-1
     items = await get_cart(callback.from_user.id)
     item = next((i for i in items if i["product_id"] == product_id), None)
     if not item:
@@ -104,7 +102,6 @@ async def cb_cart_remove(callback: types.CallbackQuery):
     if item["qty"] <= 1:
         await remove_from_cart(callback.from_user.id, product_id)
     else:
-        # перезапис: видалити і додати qty-1
         await remove_from_cart(callback.from_user.id, product_id)
         await add_to_cart(callback.from_user.id, product_id, item["qty"] - 1)
     await show_cart(callback.from_user.id, cq=callback)
