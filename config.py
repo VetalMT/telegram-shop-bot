@@ -1,6 +1,5 @@
 import os
 
-TOKEN = os.getenv("BOT_TOKEN")  # токен твого бота з Render env vars
-ADMIN_ID = int(os.getenv("ADMIN_ID", "123456789"))  # свій Telegram ID сюди
-
+TOKEN = os.getenv("BOT_TOKEN")
+ADMIN_ID = int(os.getenv("ADMIN_ID", "123456789"))  # додай свій у Render env
 DB_PATH = "shop.db"
