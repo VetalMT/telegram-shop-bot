@@ -28,13 +28,13 @@ async def init_db():
                 description TEXT NOT NULL,
                 price NUMERIC(12,2) NOT NULL,
                 photo_id TEXT
-            );
+            )
             """)
             await cur.execute("""
             CREATE TABLE IF NOT EXISTS carts(
                 id SERIAL PRIMARY KEY,
                 user_id BIGINT NOT NULL UNIQUE
-            );
+            )
             """)
             await cur.execute("""
             CREATE TABLE IF NOT EXISTS cart_items(
@@ -43,7 +43,7 @@ async def init_db():
                 product_id INT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
                 qty INT NOT NULL DEFAULT 1,
                 UNIQUE(cart_id, product_id)
-            );
+            )
             """)
             await cur.execute("""
             CREATE TABLE IF NOT EXISTS orders(
@@ -54,7 +54,7 @@ async def init_db():
                 address TEXT NOT NULL,
                 total NUMERIC(12,2) NOT NULL,
                 created_at TIMESTAMP DEFAULT NOW()
-            );
+            )
             """)
             await cur.execute("""
             CREATE TABLE IF NOT EXISTS order_items(
@@ -63,10 +63,10 @@ async def init_db():
                 product_id INT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
                 qty INT NOT NULL,
                 price NUMERIC(12,2) NOT NULL
-            );
+            )
             """)
 
-# Products
+# ---------- PRODUCTS ----------
 async def add_product(name: str, description: str, price: float, photo_id: Optional[str]) -> int:
     assert pool is not None
     async with pool.connection() as conn:
@@ -109,7 +109,7 @@ async def delete_product(product_id: int) -> bool:
             await cur.execute("DELETE FROM products WHERE id=%s", (product_id,))
             return cur.rowcount > 0
 
-# Cart functions
+# ---------- CART ----------
 async def _get_or_create_cart_id(conn: psycopg.AsyncConnection, user_id: int) -> int:
     async with conn.cursor() as cur:
         await cur.execute("SELECT id FROM carts WHERE user_id=%s", (user_id,))
@@ -168,7 +168,7 @@ async def clear_cart(user_id: int):
             cart_id = int(cart[0])
             await cur.execute("DELETE FROM cart_items WHERE cart_id=%s", (cart_id,))
 
-# Orders
+# ---------- ORDERS ----------
 async def create_order(user_id: int, full_name: str, phone: str, address: str) -> Optional[int]:
     items = await get_cart(user_id)
     if not items:
