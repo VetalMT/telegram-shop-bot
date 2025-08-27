@@ -29,7 +29,6 @@ def product_inline_kb(product_id: int) -> InlineKeyboardMarkup:
 
 def cart_inline_kb(items: list) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
-    # Кнопки видалення для кожного товару
     for it in items:
         kb.button(text=f"❌ {it['name']} (–1)", callback_data=f"cart:remove:{it['product_id']}")
     if items:
