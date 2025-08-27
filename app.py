@@ -1,47 +1,46 @@
 import logging
-from aiohttp import web
 from aiogram import Bot, Dispatcher
-from config import BOT_TOKEN, RENDER_EXTERNAL_URL, PORT
-from handlers_admin import admin_router
-from handlers_user import user_router
+from aiogram.utils.executor import start_webhook
+from config import BOT_TOKEN, RENDER_EXTERNAL_URL, PORT, ADMIN_ID
 from db import init_db
+from handlers_admin import register_admin
+from handlers_user import register_user
+from aiogram.contrib.fsm_storage.memory import MemoryStorage
 
 logging.basicConfig(level=logging.INFO)
 
-WEBHOOK_URL = f"{RENDER_EXTERNAL_URL}/webhook"
+WEBHOOK_PATH = "/webhook"
+WEBHOOK_URL = f"{RENDER_EXTERNAL_URL}{WEBHOOK_PATH}"
+WEBAPP_HOST = "0.0.0.0"
+WEBAPP_PORT = PORT  # Render PORT
 
 bot = Bot(token=BOT_TOKEN)
-dp = Dispatcher()
-dp.include_router(admin_router)
-dp.include_router(user_router)
+storage = MemoryStorage()
+dp = Dispatcher(bot, storage=storage)
 
-async def handle_webhook(request: web.Request):
-    update = await request.json()
-    await dp.feed_webhook_update(bot, update)
-    return web.Response()
+# register handlers
+register_admin(dp)
+register_user(dp)
 
-async def on_startup(app: web.Application):
+async def on_startup(dp):
+    # init db
     await init_db()
-    await bot.delete_webhook(drop_pending_updates=True)
+    # set webhook
     await bot.set_webhook(WEBHOOK_URL)
-    logging.info(f"✅ Webhook встановлено: {WEBHOOK_URL}")
+    logging.info("Webhook set: %s", WEBHOOK_URL)
 
-async def on_shutdown(app: web.Application):
-    logging.info("⚠️ Бот зупиняється...")
-    await bot.session.close()
-
-def main():
-    app = web.Application()
-    app.router.add_post("/webhook", handle_webhook)
-
-    async def health(request: web.Request):
-        return web.Response(text="OK")
-    app.router.add_get("/", health)
-
-    app.on_startup.append(on_startup)
-    app.on_shutdown.append(on_shutdown)
-
-    web.run_app(app, host="0.0.0.0", port=PORT)
+async def on_shutdown(dp):
+    logging.info("Shutting down..")
+    await bot.delete_webhook()
+    await bot.close()
 
 if __name__ == "__main__":
-    main()
+    start_webhook(
+        dispatcher=dp,
+        webhook_path=WEBHOOK_PATH,
+        on_startup=on_startup,
+        on_shutdown=on_shutdown,
+        skip_updates=True,
+        host=WEBAPP_HOST,
+        port=WEBAPP_PORT,
+    )
