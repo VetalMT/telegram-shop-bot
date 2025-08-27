@@ -1,37 +1,26 @@
 from __future__ import annotations
-
 import asyncio
 from typing import List, Optional, Tuple, Dict, Any
-
 import psycopg
 from psycopg.rows import dict_row
 from psycopg_pool import AsyncConnectionPool
-
 from config import DATABASE_URL
 
-# Глобальний async-пул підключень
 pool: AsyncConnectionPool | None = None
 
-
 async def init_db():
-    """
-    Створює async-пул та ініціалізує схему БД, якщо її немає.
-    Викликати 1 раз при старті додатку.
-    """
     global pool
     if pool is None:
-        # min_size=1/ max_size=10 – норм для невеликого бота
         pool = AsyncConnectionPool(
             conninfo=DATABASE_URL,
             min_size=1,
             max_size=10,
             open=True,
-            kwargs={"autocommit": True}  # зручно для простих запитів
+            kwargs={"autocommit": True}
         )
 
     async with pool.connection() as conn:
         async with conn.cursor() as cur:
-            # products
             await cur.execute("""
             CREATE TABLE IF NOT EXISTS products(
                 id SERIAL PRIMARY KEY,
@@ -41,16 +30,12 @@ async def init_db():
                 photo_id TEXT
             )
             """)
-
-            # carts
             await cur.execute("""
             CREATE TABLE IF NOT EXISTS carts(
                 id SERIAL PRIMARY KEY,
                 user_id BIGINT NOT NULL UNIQUE
             )
             """)
-
-            # cart_items
             await cur.execute("""
             CREATE TABLE IF NOT EXISTS cart_items(
                 id SERIAL PRIMARY KEY,
@@ -60,8 +45,6 @@ async def init_db():
                 UNIQUE(cart_id, product_id)
             )
             """)
-
-            # orders
             await cur.execute("""
             CREATE TABLE IF NOT EXISTS orders(
                 id SERIAL PRIMARY KEY,
@@ -73,8 +56,6 @@ async def init_db():
                 created_at TIMESTAMP DEFAULT NOW()
             )
             """)
-
-            # order_items
             await cur.execute("""
             CREATE TABLE IF NOT EXISTS order_items(
                 id SERIAL PRIMARY KEY,
@@ -85,8 +66,7 @@ async def init_db():
             )
             """)
 
-
-# ---------- PRODUCTS ----------
+# ---------- Products ----------
 async def add_product(name: str, description: str, price: float, photo_id: Optional[str]) -> int:
     assert pool is not None
     async with pool.connection() as conn:
@@ -98,29 +78,16 @@ async def add_product(name: str, description: str, price: float, photo_id: Optio
             row = await cur.fetchone()
             return int(row["id"])
 
-
 async def get_products(limit: int = 50, offset: int = 0) -> List[Tuple]:
     assert pool is not None
     async with pool.connection() as conn:
         async with conn.cursor() as cur:
             await cur.execute(
-                "SELECT id, name, description, price, photo_id "
-                "FROM products ORDER BY id DESC LIMIT %s OFFSET %s",
+                "SELECT id, name, description, price, photo_id FROM products ORDER BY id DESC LIMIT %s OFFSET %s",
                 (limit, offset)
             )
             rows = await cur.fetchall()
-            # rows: list[tuple]
             return [(r[0], r[1], r[2], float(r[3]), r[4]) for r in rows]
-
-
-async def count_products() -> int:
-    assert pool is not None
-    async with pool.connection() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute("SELECT COUNT(*) FROM products")
-            (count,) = await cur.fetchone()
-            return int(count)
-
 
 async def get_product(product_id: int) -> Optional[Tuple]:
     assert pool is not None
@@ -135,7 +102,6 @@ async def get_product(product_id: int) -> Optional[Tuple]:
                 return (row[0], row[1], row[2], float(row[3]), row[4])
             return None
 
-
 async def delete_product(product_id: int) -> bool:
     assert pool is not None
     async with pool.connection() as conn:
@@ -143,8 +109,15 @@ async def delete_product(product_id: int) -> bool:
             await cur.execute("DELETE FROM products WHERE id=%s", (product_id,))
             return cur.rowcount > 0
 
+async def count_products() -> int:
+    assert pool is not None
+    async with pool.connection() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute("SELECT COUNT(*) FROM products")
+            (count,) = await cur.fetchone()
+            return int(count)
 
-# ---------- CART ----------
+# ---------- Cart ----------
 async def _get_or_create_cart_id(conn: psycopg.AsyncConnection, user_id: int) -> int:
     async with conn.cursor() as cur:
         await cur.execute("SELECT id FROM carts WHERE user_id=%s", (user_id,))
@@ -154,7 +127,6 @@ async def _get_or_create_cart_id(conn: psycopg.AsyncConnection, user_id: int) ->
         await cur.execute("INSERT INTO carts(user_id) VALUES(%s) RETURNING id", (user_id,))
         (cid,) = await cur.fetchone()
         return int(cid)
-
 
 async def add_to_cart(user_id: int, product_id: int, qty: int = 1):
     assert pool is not None
@@ -171,7 +143,6 @@ async def add_to_cart(user_id: int, product_id: int, qty: int = 1):
                     (cart_id, product_id, qty)
                 )
 
-
 async def remove_from_cart(user_id: int, product_id: int):
     assert pool is not None
     async with pool.connection() as conn:
@@ -183,7 +154,6 @@ async def remove_from_cart(user_id: int, product_id: int):
             cart_id = int(cart[0])
             await cur.execute("DELETE FROM cart_items WHERE cart_id=%s AND product_id=%s", (cart_id, product_id))
 
-
 async def clear_cart(user_id: int):
     assert pool is not None
     async with pool.connection() as conn:
@@ -194,7 +164,6 @@ async def clear_cart(user_id: int):
                 return
             cart_id = int(cart[0])
             await cur.execute("DELETE FROM cart_items WHERE cart_id=%s", (cart_id,))
-
 
 async def get_cart(user_id: int) -> List[Dict[str, Any]]:
     assert pool is not None
@@ -218,14 +187,12 @@ async def get_cart(user_id: int) -> List[Dict[str, Any]]:
                 for r in rows
             ]
 
-
-# ---------- ORDERS ----------
+# ---------- Orders ----------
 async def create_order(user_id: int, full_name: str, phone: str, address: str) -> Optional[int]:
     items = await get_cart(user_id)
     if not items:
         return None
     total = sum(i["price"] * i["qty"] for i in items)
-
     assert pool is not None
     async with pool.connection() as conn:
         async with conn.cursor(row_factory=dict_row) as cur:
@@ -236,12 +203,10 @@ async def create_order(user_id: int, full_name: str, phone: str, address: str) -
             )
             row = await cur.fetchone()
             order_id = int(row["id"])
-
             for i in items:
                 await cur.execute(
                     "INSERT INTO order_items(order_id, product_id, qty, price) VALUES(%s,%s,%s,%s)",
                     (order_id, i["product_id"], i["qty"], i["price"])
                 )
-
     await clear_cart(user_id)
     return order_id
