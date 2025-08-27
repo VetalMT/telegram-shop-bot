@@ -1,25 +1,22 @@
 import os
 
-from dotenv import load_dotenv
+# Telegram
+BOT_TOKEN = os.getenv("BOT_TOKEN")
 
-# Локально дозволяє читати .env, на Render просто ігнорується (бо ENV вже заданий)
-load_dotenv()
+# Port для Render
+PORT = int(os.getenv("PORT", 8000))
 
-BOT_TOKEN = os.getenv("BOT_TOKEN") or ""
-ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
+# URL зовнішнього вебхука Render
+RENDER_EXTERNAL_URL = os.getenv("RENDER_EXTERNAL_URL")
 
-# Render виставляє це значення автоматично
-RENDER_EXTERNAL_URL = os.getenv("RENDER_EXTERNAL_URL") or ""
-DATABASE_URL = os.getenv("DATABASE_URL") or ""
+# PostgreSQL
+DB_USER = os.getenv("DB_USER")
+DB_PASSWORD = os.getenv("DB_PASSWORD")
+DB_NAME = os.getenv("DB_NAME")
+DB_HOST = os.getenv("DB_HOST")
+DB_PORT = os.getenv("DB_PORT", 5432)
 
-# Порт, на якому слухає aiohttp (на Render повинен збігатися з $PORT)
-PORT = int(os.getenv("PORT", "10000"))
+DATABASE_URL = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
 
-if not BOT_TOKEN:
-    raise ValueError("❌ Не вказано BOT_TOKEN в змінних оточення!")
-if not ADMIN_ID:
-    raise ValueError("❌ Не вказано ADMIN_ID в змінних оточення!")
-if not RENDER_EXTERNAL_URL:
-    raise ValueError("❌ Не вказано RENDER_EXTERNAL_URL в змінних оточення!")
-if not DATABASE_URL:
-    raise ValueError("❌ Не вказано DATABASE_URL в змінних оточення!")
+# Admin IDs
+ADMINS = [123456789]  # <-- постав свій Telegram ID
