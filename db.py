@@ -83,11 +83,20 @@ async def get_products(limit: int = 50, offset: int = 0) -> List[Tuple]:
     async with pool.connection() as conn:
         async with conn.cursor() as cur:
             await cur.execute(
-                "SELECT id, name, description, price, photo_id FROM products ORDER BY id DESC LIMIT %s OFFSET %s",
+                "SELECT id, name, description, price, photo_id "
+                "FROM products ORDER BY id DESC LIMIT %s OFFSET %s",
                 (limit, offset)
             )
             rows = await cur.fetchall()
             return [(r[0], r[1], r[2], float(r[3]), r[4]) for r in rows]
+
+async def count_products() -> int:
+    assert pool is not None
+    async with pool.connection() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute("SELECT COUNT(*) FROM products")
+            (count,) = await cur.fetchone()
+            return int(count)
 
 async def get_product(product_id: int) -> Optional[Tuple]:
     assert pool is not None
@@ -135,6 +144,28 @@ async def add_to_cart(user_id: int, product_id: int, qty: int = 1):
                     (cart_id, product_id, qty)
                 )
 
+async def remove_from_cart(user_id: int, product_id: int):
+    assert pool is not None
+    async with pool.connection() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute("SELECT id FROM carts WHERE user_id=%s", (user_id,))
+            cart = await cur.fetchone()
+            if not cart:
+                return
+            cart_id = int(cart[0])
+            await cur.execute("DELETE FROM cart_items WHERE cart_id=%s AND product_id=%s", (cart_id, product_id))
+
+async def clear_cart(user_id: int):
+    assert pool is not None
+    async with pool.connection() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute("SELECT id FROM carts WHERE user_id=%s", (user_id,))
+            cart = await cur.fetchone()
+            if not cart:
+                return
+            cart_id = int(cart[0])
+            await cur.execute("DELETE FROM cart_items WHERE cart_id=%s", (cart_id,))
+
 async def get_cart(user_id: int) -> List[Dict[str, Any]]:
     assert pool is not None
     async with pool.connection() as conn:
@@ -157,17 +188,6 @@ async def get_cart(user_id: int) -> List[Dict[str, Any]]:
                 for r in rows
             ]
 
-async def clear_cart(user_id: int):
-    assert pool is not None
-    async with pool.connection() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute("SELECT id FROM carts WHERE user_id=%s", (user_id,))
-            cart = await cur.fetchone()
-            if not cart:
-                return
-            cart_id = int(cart[0])
-            await cur.execute("DELETE FROM cart_items WHERE cart_id=%s", (cart_id,))
-
 # ---------- ORDERS ----------
 async def create_order(user_id: int, full_name: str, phone: str, address: str) -> Optional[int]:
     items = await get_cart(user_id)
@@ -185,10 +205,12 @@ async def create_order(user_id: int, full_name: str, phone: str, address: str) -
             )
             row = await cur.fetchone()
             order_id = int(row["id"])
+
             for i in items:
                 await cur.execute(
                     "INSERT INTO order_items(order_id, product_id, qty, price) VALUES(%s,%s,%s,%s)",
                     (order_id, i["product_id"], i["qty"], i["price"])
                 )
+
     await clear_cart(user_id)
     return order_id
