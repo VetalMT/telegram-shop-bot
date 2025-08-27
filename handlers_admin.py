@@ -1,55 +1,93 @@
-from aiogram import Router, types
-from aiogram.filters import Command
+from aiogram import Router, types, F
+from aiogram.fsm.state import StatesGroup, State
+from aiogram.fsm.context import FSMContext
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from config import ADMIN_ID
 from db import add_product, delete_product, get_products
 
 admin_router = Router()
-ADMIN_ID = 123456789  # замініть на свій Telegram ID
 
-def is_admin(user_id: int) -> bool:
-    return user_id == ADMIN_ID
+class AddProductFSM(StatesGroup):
+    name = State()
+    description = State()
+    price = State()
+    photo = State()
 
-@admin_router.message(Command("admin"))
-async def admin_panel(message: types.Message):
-    if not is_admin(message.from_user.id):
-        await message.answer("🚫 Немає доступу")
+@admin_router.message(commands=["admin"])
+async def admin_menu(message: types.Message):
+    if message.from_user.id != ADMIN_ID:
         return
-    kb = InlineKeyboardMarkup(row_width=1)
-    kb.add(InlineKeyboardButton("Додати товар", callback_data="add_product"))
-    kb.add(InlineKeyboardButton("Переглянути товари", callback_data="list_products"))
-    await message.answer("Панель адміністратора:", reply_markup=kb)
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="➕ Додати товар", callback_data="add_product")],
+        [InlineKeyboardButton(text="🗑 Видалити товар", callback_data="del_product")],
+        [InlineKeyboardButton(text="📦 Список товарів", callback_data="list_products")]
+    ])
+    await message.answer("Адмін-панель:", reply_markup=kb)
 
-@admin_router.callback_query(lambda c: c.data == "add_product")
-async def add_product_cb(callback: types.CallbackQuery):
-    await callback.message.answer("Надішліть дані товару у форматі:\nНазва, Опис, Ціна, photo_id")
-    await callback.message.delete()
-
-@admin_router.message()
-async def add_product_message(message: types.Message):
-    if not is_admin(message.from_user.id):
+# Додавання товару
+@admin_router.callback_query(F.data == "add_product")
+async def add_start(callback: types.CallbackQuery, state: FSMContext):
+    if callback.from_user.id != ADMIN_ID:
         return
-    try:
-        name, description, price, photo_id = message.text.split(",", 3)
-        price = float(price.strip())
-        product_id = await add_product(name.strip(), description.strip(), price, photo_id.strip())
-        await message.answer(f"Товар додано ✅ (ID: {product_id})")
-    except Exception as e:
-        await message.answer(f"Помилка при додаванні: {e}")
+    await state.set_state(AddProductFSM.name)
+    await callback.message.answer("Введи назву товару:")
 
-@admin_router.callback_query(lambda c: c.data == "list_products")
-async def list_products_cb(callback: types.CallbackQuery):
+@admin_router.message(AddProductFSM.name)
+async def add_name(message: types.Message, state: FSMContext):
+    await state.update_data(name=message.text)
+    await state.set_state(AddProductFSM.description)
+    await message.answer("Введи опис товару:")
+
+@admin_router.message(AddProductFSM.description)
+async def add_desc(message: types.Message, state: FSMContext):
+    await state.update_data(description=message.text)
+    await state.set_state(AddProductFSM.price)
+    await message.answer("Введи ціну:")
+
+@admin_router.message(AddProductFSM.price)
+async def add_price(message: types.Message, state: FSMContext):
+    await state.update_data(price=float(message.text))
+    await state.set_state(AddProductFSM.photo)
+    await message.answer("Надішли фото:")
+
+@admin_router.message(AddProductFSM.photo, F.photo)
+async def add_photo(message: types.Message, state: FSMContext):
+    data = await state.get_data()
+    await add_product(
+        name=data["name"],
+        description=data["description"],
+        price=data["price"],
+        photo_id=message.photo[-1].file_id
+    )
+    await state.clear()
+    await message.answer("✅ Товар додано")
+
+# Видалення товару
+@admin_router.callback_query(F.data == "del_product")
+async def delete_menu(callback: types.CallbackQuery):
     products = await get_products()
     if not products:
-        await callback.message.edit_text("Товарів немає")
+        await callback.message.answer("❌ Немає товарів")
         return
-    kb = InlineKeyboardMarkup(row_width=1)
-    for p in products:
-        kb.add(InlineKeyboardButton(f"❌ Видалити {p[1]}", callback_data=f"delete_{p[0]}"))
-    await callback.message.edit_text("Список товарів:", reply_markup=kb)
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[[InlineKeyboardButton(text=f"❌ {p[1]}", callback_data=f"delete_{p[0]}")] for p in products]
+    )
+    await callback.message.answer("Вибери товар для видалення:", reply_markup=kb)
 
 @admin_router.callback_query(lambda c: c.data.startswith("delete_"))
-async def delete_product_cb(callback: types.CallbackQuery):
-    product_id = int(callback.data.split("_")[1])
-    await delete_product(product_id)
-    await callback.answer("Товар видалено ✅")
-    await list_products_cb(callback)
+async def delete_item(callback: types.CallbackQuery):
+    pid = int(callback.data.split("_")[1])
+    await delete_product(pid)
+    await callback.message.answer("🗑 Товар видалено")
+
+# Перегляд списку
+@admin_router.callback_query(F.data == "list_products")
+async def list_products(callback: types.CallbackQuery):
+    products = await get_products()
+    if not products:
+        await callback.message.answer("❌ Каталог порожній")
+        return
+    text = "📦 Товари:\n"
+    for p in products:
+        text += f"{p[0]}. {p[1]} — {p[3]} грн\n"
+    await callback.message.answer(text)
