@@ -28,13 +28,13 @@ async def init_db():
                 description TEXT NOT NULL,
                 price NUMERIC(12,2) NOT NULL,
                 photo_id TEXT
-            )
+            );
             """)
             await cur.execute("""
             CREATE TABLE IF NOT EXISTS carts(
                 id SERIAL PRIMARY KEY,
                 user_id BIGINT NOT NULL UNIQUE
-            )
+            );
             """)
             await cur.execute("""
             CREATE TABLE IF NOT EXISTS cart_items(
@@ -43,7 +43,7 @@ async def init_db():
                 product_id INT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
                 qty INT NOT NULL DEFAULT 1,
                 UNIQUE(cart_id, product_id)
-            )
+            );
             """)
             await cur.execute("""
             CREATE TABLE IF NOT EXISTS orders(
@@ -54,7 +54,7 @@ async def init_db():
                 address TEXT NOT NULL,
                 total NUMERIC(12,2) NOT NULL,
                 created_at TIMESTAMP DEFAULT NOW()
-            )
+            );
             """)
             await cur.execute("""
             CREATE TABLE IF NOT EXISTS order_items(
@@ -63,10 +63,10 @@ async def init_db():
                 product_id INT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
                 qty INT NOT NULL,
                 price NUMERIC(12,2) NOT NULL
-            )
+            );
             """)
 
-# ---------- Products ----------
+# Products
 async def add_product(name: str, description: str, price: float, photo_id: Optional[str]) -> int:
     assert pool is not None
     async with pool.connection() as conn:
@@ -109,15 +109,7 @@ async def delete_product(product_id: int) -> bool:
             await cur.execute("DELETE FROM products WHERE id=%s", (product_id,))
             return cur.rowcount > 0
 
-async def count_products() -> int:
-    assert pool is not None
-    async with pool.connection() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute("SELECT COUNT(*) FROM products")
-            (count,) = await cur.fetchone()
-            return int(count)
-
-# ---------- Cart ----------
+# Cart functions
 async def _get_or_create_cart_id(conn: psycopg.AsyncConnection, user_id: int) -> int:
     async with conn.cursor() as cur:
         await cur.execute("SELECT id FROM carts WHERE user_id=%s", (user_id,))
@@ -143,28 +135,6 @@ async def add_to_cart(user_id: int, product_id: int, qty: int = 1):
                     (cart_id, product_id, qty)
                 )
 
-async def remove_from_cart(user_id: int, product_id: int):
-    assert pool is not None
-    async with pool.connection() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute("SELECT id FROM carts WHERE user_id=%s", (user_id,))
-            cart = await cur.fetchone()
-            if not cart:
-                return
-            cart_id = int(cart[0])
-            await cur.execute("DELETE FROM cart_items WHERE cart_id=%s AND product_id=%s", (cart_id, product_id))
-
-async def clear_cart(user_id: int):
-    assert pool is not None
-    async with pool.connection() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute("SELECT id FROM carts WHERE user_id=%s", (user_id,))
-            cart = await cur.fetchone()
-            if not cart:
-                return
-            cart_id = int(cart[0])
-            await cur.execute("DELETE FROM cart_items WHERE cart_id=%s", (cart_id,))
-
 async def get_cart(user_id: int) -> List[Dict[str, Any]]:
     assert pool is not None
     async with pool.connection() as conn:
@@ -187,12 +157,24 @@ async def get_cart(user_id: int) -> List[Dict[str, Any]]:
                 for r in rows
             ]
 
-# ---------- Orders ----------
+async def clear_cart(user_id: int):
+    assert pool is not None
+    async with pool.connection() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute("SELECT id FROM carts WHERE user_id=%s", (user_id,))
+            cart = await cur.fetchone()
+            if not cart:
+                return
+            cart_id = int(cart[0])
+            await cur.execute("DELETE FROM cart_items WHERE cart_id=%s", (cart_id,))
+
+# Orders
 async def create_order(user_id: int, full_name: str, phone: str, address: str) -> Optional[int]:
     items = await get_cart(user_id)
     if not items:
         return None
     total = sum(i["price"] * i["qty"] for i in items)
+
     assert pool is not None
     async with pool.connection() as conn:
         async with conn.cursor(row_factory=dict_row) as cur:
