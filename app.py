@@ -1,48 +1,71 @@
 import asyncio
 import logging
 import os
+from aiogram import Bot, Dispatcher, types
+from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
+from aiogram.filters import Command
 
-from aiohttp import web
-from aiogram import Bot, Dispatcher
-from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
+from db import init_db, add_product, get_products, get_product
 
-from db import init_db  # наш новий asyncpg db.py
-from handlers import router as main_router
-
-# Логування
 logging.basicConfig(level=logging.INFO)
 
-# Токен бота і вебхук
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-WEBHOOK_PATH = "/webhook"
-WEBHOOK_HOST = os.getenv("WEBHOOK_HOST")  # твій домен на Render
-WEBHOOK_URL = f"{WEBHOOK_HOST}{WEBHOOK_PATH}"
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
-dp.include_router(main_router)
 
-# ---------- STARTUP / SHUTDOWN ----------
-async def on_startup(app: web.Application):
-    await init_db()  # створюємо пул + таблиці
-    await bot.set_webhook(WEBHOOK_URL)
-    logging.info("Webhook встановлено: %s", WEBHOOK_URL)
 
-async def on_shutdown(app: web.Application):
-    await bot.delete_webhook()
-    logging.info("Webhook видалено")
+# ==== КНОПКИ ====
+def products_keyboard(products):
+    kb = InlineKeyboardMarkup()
+    for product in products:
+        kb.add(
+            InlineKeyboardButton(
+                text=f"{product['name']} - {product['price']}₴",
+                callback_data=f"product_{product['id']}"
+            )
+        )
+    return kb
 
-# ---------- MAIN ----------
-def main():
-    app = web.Application()
-    app.on_startup.append(on_startup)
-    app.on_shutdown.append(on_shutdown)
 
-    # Webhook handler
-    SimpleRequestHandler(dispatcher=dp, bot=bot).register(app, path=WEBHOOK_PATH)
-    setup_application(app, dp, bot=bot)
+# ==== ХЕНДЛЕРИ ====
+@dp.message(Command("start"))
+async def cmd_start(message: Message):
+    await message.answer("Привіт 👋 Це магазин!\nВведи /products щоб подивитись товари.")
 
-    web.run_app(app, host="0.0.0.0", port=int(os.getenv("PORT", 8080)))
+
+@dp.message(Command("products"))
+async def cmd_products(message: Message):
+    products = get_products()
+    if not products:
+        await message.answer("Немає товарів 😔")
+    else:
+        await message.answer("Наші товари:", reply_markup=products_keyboard(products))
+
+
+@dp.callback_query()
+async def callbacks(callback: CallbackQuery):
+    if callback.data.startswith("product_"):
+        product_id = int(callback.data.split("_")[1])
+        product = get_product(product_id)
+
+        if product:
+            text = f"🛒 <b>{product['name']}</b>\n💵 Ціна: {product['price']}₴\n\n{product['description'] or ''}"
+            if product["image_url"]:
+                await bot.send_photo(callback.from_user.id, photo=product["image_url"], caption=text, parse_mode="HTML")
+            else:
+                await bot.send_message(callback.from_user.id, text, parse_mode="HTML")
+        else:
+            await bot.send_message(callback.from_user.id, "Товар не знайдено 😔")
+
+        await callback.answer()
+
+
+# ==== СТАРТ ====
+async def main():
+    init_db()  # створює таблиці, якщо ще нема
+    await dp.start_polling(bot)
+
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
