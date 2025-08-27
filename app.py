@@ -7,18 +7,17 @@ from handlers_user import user_router
 from db import init_db
 
 logging.basicConfig(level=logging.INFO)
+
 WEBHOOK_URL = f"{RENDER_EXTERNAL_URL}/webhook"
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
-
 dp.include_router(admin_router)
 dp.include_router(user_router)
 
 @dp.message()
 async def ping(message: types.Message):
-    if message.text == "/ping":
-        await message.answer("pong 🟢")
+    await message.answer("pong 🟢")
 
 async def handle_webhook(request: web.Request):
     update = await request.json()
@@ -38,11 +37,14 @@ async def on_shutdown(app: web.Application):
 def main():
     app = web.Application()
     app.router.add_post("/webhook", handle_webhook)
+
     async def health(request: web.Request):
         return web.Response(text="OK")
     app.router.add_get("/", health)
+
     app.on_startup.append(on_startup)
     app.on_shutdown.append(on_shutdown)
+
     web.run_app(app, host="0.0.0.0", port=PORT)
 
 if __name__ == "__main__":
