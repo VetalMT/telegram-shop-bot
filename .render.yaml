@@ -2,11 +2,26 @@ services:
   - type: web
     name: telegram-shop-bot
     env: python
-    pythonVersion: "3.10.14"
-    plan: free
     region: oregon
-    repo: https://github.com/VetalMT/telegram-shop-bot
+    plan: free
     branch: main
-    buildCommand: "pip install --upgrade pip && pip install -r requirements.txt"
-    startCommand: "python app.py"
-    autoDeploy: true
+    buildCommand: pip install --upgrade pip && pip install -r requirements.txt
+    startCommand: python app.py
+    envVars:
+      - key: BOT_TOKEN
+        value: "тут_твій_токен"
+      - key: ADMIN_ID
+        value: "тут_id_адміна"
+      - key: DB_HOST
+        value: "localhost"
+      - key: DB_NAME
+        value: "shopdb"
+      - key: DB_USER
+        value: "postgres"
+      - key: DB_PASSWORD
+        value: "пароль_бд"
+      - key: PORT
+        value: "10000"
+      - key: RENDER_EXTERNAL_URL
+        value: "https://telegram-shop-bot-z03b.onrender.com"
+    pythonVersion: 3.10.14
