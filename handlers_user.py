@@ -16,12 +16,12 @@ async def cmd_start(message: types.Message):
         reply_markup=shop_kb
     )
 
-# Натиснута нижня кнопка "Каталог"
+# Натиснута кнопка "Каталог"
 @user_router.message(F.text.in_(["📦 Каталог", "🛍 Каталог"]))
 async def open_catalog_from_reply(message: types.Message):
     await show_catalog(message)
 
-# Натиснута нижня кнопка "Корзина/Кошик"
+# Натиснута кнопка "Кошик"
 @user_router.message(F.text.in_(["🛒 Корзина", "🛒 Кошик"]))
 async def open_cart_from_reply(message: types.Message):
     await show_cart(message.chat.id, message)
@@ -75,9 +75,7 @@ async def show_cart(user_id: int, target_message: types.Message | None = None, c
         return
 
     total = sum(i["price"] * i["qty"] for i in items)
-    lines = []
-    for it in items:
-        lines.append(f"• {it['name']} × {it['qty']} = {it['price']*it['qty']:.2f} грн")
+    lines = [f"• {it['name']} × {it['qty']} = {it['price']*it['qty']:.2f} грн" for it in items]
     text = "🛍 Ваш кошик:\n" + "\n".join(lines) + f"\n\nСума: {total:.2f} грн"
     kb = cart_inline_kb(items)
 
@@ -102,7 +100,7 @@ async def cb_cart_remove(callback: types.CallbackQuery):
     if item["qty"] <= 1:
         await remove_from_cart(callback.from_user.id, product_id)
     else:
-        await remove_from_cart(callback.from_user.id, product_id)
+        # Зменшуємо кількість на 1
         await add_to_cart(callback.from_user.id, product_id, item["qty"] - 1)
     await show_cart(callback.from_user.id, cq=callback)
 
