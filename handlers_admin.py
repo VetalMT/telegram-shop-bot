@@ -83,8 +83,6 @@ async def _confirm_product(message: types.Message, state: FSMContext):
 
 @admin_router.message(AddProductFSM.confirm, F.text.in_({"+", "−", "-"}))
 async def admin_add_product_confirm(message: types.Message, state: FSMContext):
-    if message.text.strip() not in {"+", "−", "-"}:
-        return
     if message.text.strip() in {"−", "-"}:
         await state.clear()
         await message.answer("❌ Додавання скасовано.", reply_markup=admin_kb)
@@ -99,12 +97,12 @@ async def admin_add_product_confirm(message: types.Message, state: FSMContext):
     await state.clear()
     await message.answer("✅ Товар додано!", reply_markup=admin_kb)
 
-# Перегляд товарів (списком з ID)
+# Перегляд товарів
 @admin_router.message(F.text == "📦 Переглянути товари")
 async def admin_view_products(message: types.Message):
     if message.from_user.id != ADMIN_ID:
         return
-        products = await get_products(limit=50, offset=0)
+    products = await get_products(limit=50, offset=0)
     if not products:
         await message.answer("📭 У каталозі поки немає товарів.")
         return
