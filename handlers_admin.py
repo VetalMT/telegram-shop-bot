@@ -1,116 +1,86 @@
-from aiogram import Router, types
-from aiogram.filters import Command, Text
-from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import State, StatesGroup
+from aiogram import Router, types, F
+from aiogram.filters import Command
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from db import add_product, delete_product, get_products
-from config import ADMINS
 
 admin_router = Router()
 
-# ---------- FSM для додавання продукту ----------
-class AddProduct(StatesGroup):
-    name = State()
-    description = State()
-    price = State()
-    photo = State()
+ADMIN_ID = 123456789  # <- заміни на свій Telegram ID
 
-# Перевірка на admin
-def is_admin(user_id: int) -> bool:
-    return user_id in ADMINS
+# --- Кнопки ---
+def admin_main_menu():
+    kb = InlineKeyboardMarkup(row_width=1)
+    kb.add(
+        InlineKeyboardButton("Додати товар", callback_data="admin_add"),
+        InlineKeyboardButton("Переглянути товари", callback_data="admin_list"),
+    )
+    return kb
 
-# Старт адмін меню
+# --- Хендлери ---
 @admin_router.message(Command("admin"))
 async def admin_start(message: types.Message):
-    if not is_admin(message.from_user.id):
-        await message.answer("🚫 Ти не адмін")
+    if message.from_user.id != ADMIN_ID:
         return
-    kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    kb.add("Додати продукт", "Видалити продукт")
-    await message.answer("👑 Адмін панель", reply_markup=kb)
+    await message.answer("Головне меню адміністратора:", reply_markup=admin_main_menu())
 
-# Додати продукт
-@admin_router.message(Text("Додати продукт"))
-async def admin_add_product(message: types.Message, state: FSMContext):
-    await message.answer("Введи назву продукту:")
-    await state.set_state(AddProduct.name)
+# --- Додавання товару ---
+@admin_router.callback_query(F.data=="admin_add")
+async def admin_add_product_start(callback: types.CallbackQuery):
+    if callback.from_user.id != ADMIN_ID:
+        return
+    await callback.message.answer("Введіть назву товару:")
+    await callback.message.bot.set_state(callback.from_user.id, "adding_name")
+    await callback.answer()
 
-@admin_router.message(AddProduct.name)
-async def admin_add_product_name(message: types.Message, state: FSMContext):
-    await state.update_data(name=message.text)
-    await message.answer("Введи опис продукту:")
-    await state.set_state(AddProduct.description)
+@admin_router.message(F.state=="adding_name")
+async def admin_add_name(message: types.Message):
+    message.bot_data = {"name": message.text}
+    await message.answer("Введіть опис товару:")
+    await message.bot.set_state(message.from_user.id, "adding_description")
 
-@admin_router.message(AddProduct.description)
-async def admin_add_product_desc(message: types.Message, state: FSMContext):
-    await state.update_data(description=message.text)
-    await message.answer("Введи ціну продукту:")
-    await state.set_state(AddProduct.price)
+@admin_router.message(F.state=="adding_description")
+async def admin_add_description(message: types.Message):
+    message.bot_data["description"] = message.text
+    await message.answer("Введіть ціну товару:")
+    await message.bot.set_state(message.from_user.id, "adding_price")
 
-@admin_router.message(AddProduct.price)
-async def admin_add_product_price(message: types.Message, state: FSMContext):
+@admin_router.message(F.state=="adding_price")
+async def admin_add_price(message: types.Message):
     try:
         price = float(message.text)
-    except ValueError:
-        await message.answer("Введи правильну ціну (число).")
+    except:
+        await message.answer("Ціна повинна бути числом. Спробуйте ще раз:")
         return
-    await state.update_data(price=price)
-    await message.answer("Надішли фото продукту або /skip")
-    await state.set_state(AddProduct.photo)
+    message.bot_data["price"] = price
+    await message.answer("Надішліть фото товару:")
+    await message.bot.set_state(message.from_user.id, "adding_photo")
 
-@admin_router.message(AddProduct.photo, content_types=types.ContentType.PHOTO)
-async def admin_add_product_photo(message: types.Message, state: FSMContext):
+@admin_router.message(F.content_type=="photo", F.state=="adding_photo")
+async def admin_add_photo(message: types.Message):
     photo_id = message.photo[-1].file_id
-    data = await state.get_data()
-    await add_product(
-        name=data["name"],
-        description=data["description"],
-        price=data["price"],
-        photo_id=photo_id
-    )
-    await message.answer("✅ Продукт додано!")
-    await state.clear()
+    data = message.bot_data
+    await add_product(data["name"], data["description"], data["price"], photo_id)
+    await message.answer("Товар додано ✅", reply_markup=admin_main_menu())
+    await message.bot.set_state(message.from_user.id, None)
 
-@admin_router.message(AddProduct.photo, commands="skip")
-async def admin_add_product_skip_photo(message: types.Message, state: FSMContext):
-    data = await state.get_data()
-    await add_product(
-        name=data["name"],
-        description=data["description"],
-        price=data["price"],
-        photo_id=None
-    )
-    await message.answer("✅ Продукт додано без фото!")
-    await state.clear()
-
-# Видалити продукт
-@admin_router.message(Text("Видалити продукт"))
-async def admin_delete_product(message: types.Message):
+# --- Перегляд і видалення товарів ---
+@admin_router.callback_query(F.data=="admin_list")
+async def admin_list_products(callback: types.CallbackQuery):
     products = await get_products()
     if not products:
-        await message.answer("Продуктів немає.")
+        await callback.message.answer("Список товарів порожній.")
         return
-    kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
     for p in products:
-        kb.add(types.KeyboardButton(f"{p[1]} | ID:{p[0]}"))
-    kb.add("Відмінити")
-    await message.answer("Вибери продукт для видалення:", reply_markup=kb)
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton("Видалити", callback_data=f"del_{p[0]}")]
+        ])
+        text = f"ID: {p[0]}\nНазва: {p[1]}\nОпис: {p[2]}\nЦіна: {p[3]}"
+        await callback.message.answer_photo(p[4], caption=text, reply_markup=kb)
+    await callback.answer()
 
-@admin_router.message()
-async def admin_delete_product_select(message: types.Message):
-    if message.text == "Відмінити":
-        await message.answer("❌ Відмінено", reply_markup=types.ReplyKeyboardRemove())
-        return
-    if "ID:" not in message.text:
-        await message.answer("Невірний формат")
-        return
-    try:
-        product_id = int(message.text.split("ID:")[-1])
-    except ValueError:
-        await message.answer("Невірний формат ID")
-        return
-    from db import delete_product
-    deleted = await delete_product(product_id)
-    if deleted:
-        await message.answer("✅ Продукт видалено", reply_markup=types.ReplyKeyboardRemove())
-    else:
-        await message.answer("❌ Не вдалося видалити", reply_markup=types.ReplyKeyboardRemove())
+@admin_router.callback_query(F.data.startswith("del_"))
+async def admin_delete_product(callback: types.CallbackQuery):
+    pid = int(callback.data.split("_")[1])
+    await delete_product(pid)
+    await callback.message.answer("Товар видалено ✅")
+    await callback.answer()
