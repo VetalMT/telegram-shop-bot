@@ -100,8 +100,8 @@ async def cb_cart_remove(callback: types.CallbackQuery):
     if item["qty"] <= 1:
         await remove_from_cart(callback.from_user.id, product_id)
     else:
-        # Зменшуємо кількість на 1
-        await add_to_cart(callback.from_user.id, product_id, item["qty"] - 1)
+        # Зменшуємо кількість на 1 (логіка як і в оригіналі)
+        await add_to_cart(callback.from_user.id, product_id, -1)
     await show_cart(callback.from_user.id, cq=callback)
 
 @user_router.callback_query(F.data == "cart:clear")
