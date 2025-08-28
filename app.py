@@ -1,22 +1,22 @@
 import logging
 import os
 import asyncio
+from aiohttp import web
 from aiogram import Bot, Dispatcher, types
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 from aiogram.filters import Command
-from aiohttp import web
 from db import init_db, add_product, delete_product, get_products
 
 logging.basicConfig(level=logging.INFO)
 
-TOKEN = os.getenv("BOT_TOKEN")  # твій токен через Environment Variables
-PORT = int(os.getenv("PORT", 10000))  # порт Render
-WEBHOOK_BASE = f"https://{os.getenv('RENDER_EXTERNAL_HOSTNAME')}"
+TOKEN = os.getenv("TOKEN")  # твій токен в Environment Variables
 WEBHOOK_PATH = f"/webhook/{TOKEN}"
-WEBHOOK_URL = WEBHOOK_BASE + WEBHOOK_PATH
+WEBHOOK_URL = f"https://{os.getenv('RENDER_EXTERNAL_HOSTNAME')}{WEBHOOK_PATH}"
+PORT = int(os.getenv("PORT", 10000))
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
+dp.workflow_data = {}
 
 # --- Головне меню ---
 main_kb = ReplyKeyboardMarkup(
@@ -101,28 +101,26 @@ async def view_products(message: types.Message):
 async def unknown(message: types.Message):
     await message.answer("❓ Не зрозумів... Виберіть категорію з меню.", reply_markup=main_kb)
 
-# --- Webhook обробник ---
+# --- Вебхук ---
 async def handle(request):
-    update = types.Update(**await request.json())
-    await dp.process_update(update)
+    data = await request.json()
+    update = types.Update(**data)
+    await dp.feed_update(update)  # feed_update замість process_update
     return web.Response(text="ok")
 
-# --- Старт сервера ---
 async def on_startup(app):
     await init_db()
-    dp.workflow_data = {}
-    # Встановлюємо webhook
     await bot.set_webhook(WEBHOOK_URL)
+    logging.info(f"Webhook set to {WEBHOOK_URL}")
 
 async def on_shutdown(app):
-    logging.warning("Shutting down..")
     await bot.delete_webhook()
     await bot.session.close()
 
 app = web.Application()
 app.router.add_post(WEBHOOK_PATH, handle)
 app.on_startup.append(on_startup)
-app.on_cleanup.append(on_shutdown)
+app.on_shutdown.append(on_shutdown)
 
 if __name__ == "__main__":
     web.run_app(app, port=PORT)
