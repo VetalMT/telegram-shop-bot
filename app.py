@@ -7,7 +7,7 @@ from db import init_db, add_product, delete_product, get_products
 
 logging.basicConfig(level=logging.INFO)
 
-TOKEN = "ТВОЙ_ТОКЕН_ТУТ"
+TOKEN = "8327744046:AAHJea2egeTg8K5I0x5h6vA3qWu_JPUR5jg"
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
