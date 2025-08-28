@@ -1,70 +1,108 @@
+import asyncio
 import logging
 import os
-from aiohttp import web
 from aiogram import Bot, Dispatcher, types
+from aiogram.types import KeyboardButton, ReplyKeyboardMarkup
 from aiogram.filters import Command
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+from aiogram.utils.keyboard import ReplyKeyboardBuilder
+from dotenv import load_dotenv
 
-from config import BOT_TOKEN, ADMIN_ID, WEBHOOK_URL
-from db import init_db
-from handlers_admin import admin_router
-from handlers_user import user_router
+# Завантаження .env
+load_dotenv()
 
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+ADMIN_ID = int(os.getenv("ADMIN_ID", 0))
+
+# Логування
 logging.basicConfig(level=logging.INFO)
 
+# Ініціалізація бота
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
-dp.include_router(admin_router)
-dp.include_router(user_router)
 
+# =======================
 # Клавіатури
-main_kb = ReplyKeyboardMarkup(
-    keyboard=[[KeyboardButton("📦 Каталог"), KeyboardButton("🛒 Корзина")]],
+# =======================
+
+main_keyboard = ReplyKeyboardMarkup(
+    keyboard=[
+        [
+            KeyboardButton(text="📦 Каталог"),
+            KeyboardButton(text="🛒 Корзина")
+        ]
+    ],
     resize_keyboard=True
 )
 
-admin_kb = ReplyKeyboardMarkup(
-    keyboard=[[KeyboardButton("➕ Додати товар")],
-              [KeyboardButton("❌ Видалити товар")],
-              [KeyboardButton("📋 Переглянути товари")]],
+confirm_keyboard = ReplyKeyboardMarkup(
+    keyboard=[
+        [
+            KeyboardButton(text="✅ Підтвердити"),
+            KeyboardButton(text="❌ Скасувати")
+        ]
+    ],
     resize_keyboard=True
 )
 
-# Старт
+# =======================
+# Команди
+# =======================
+
 @dp.message(Command("start"))
-async def start_handler(message: types.Message):
-    if message.from_user.id == ADMIN_ID:
-        await message.answer("Вітаю, адміністратор!", reply_markup=admin_kb)
-    else:
-        await message.answer("Вітаю у магазині!", reply_markup=main_kb)
+async def start(message: types.Message):
+    await message.answer(
+        f"Привіт, {message.from_user.full_name}! Виберіть опцію нижче:",
+        reply_markup=main_keyboard
+    )
 
-# Webhook
-async def handle_webhook(request: web.Request):
-    update = await request.json()
-    await dp.feed_webhook_update(bot, update)
-    return web.Response()
+@dp.message(Command("help"))
+async def help_command(message: types.Message):
+    await message.answer(
+        "Це бот-магазин. Використовуйте кнопки для навігації.",
+        reply_markup=main_keyboard
+    )
 
-async def on_startup(app: web.Application):
-    await init_db()
-    await bot.set_webhook(WEBHOOK_URL)
-    logging.info(f"✅ Webhook встановлено: {WEBHOOK_URL}")
+# =======================
+# Обробка кнопок
+# =======================
 
-async def on_shutdown(app: web.Application):
-    logging.info("⚠️ Бот зупиняється...")
-    await bot.session.close()
+@dp.message(lambda message: message.text == "📦 Каталог")
+async def show_catalog(message: types.Message):
+    # Приклад виводу каталогу
+    await message.answer("Ось наш каталог товарів:", reply_markup=main_keyboard)
 
-def main():
-    app = web.Application()
-    app.router.add_post("/webhook", handle_webhook)
+@dp.message(lambda message: message.text == "🛒 Корзина")
+async def show_cart(message: types.Message):
+    # Приклад виводу корзини
+    await message.answer("Ваша корзина порожня.", reply_markup=main_keyboard)
 
-    async def health(request: web.Request):
-        return web.Response(text="OK")
-    app.router.add_get("/", health)
+@dp.message(lambda message: message.text == "✅ Підтвердити")
+async def confirm_order(message: types.Message):
+    await message.answer("Ваше замовлення підтверджено!", reply_markup=main_keyboard)
 
-    app.on_startup.append(on_startup)
-    app.on_shutdown.append(on_shutdown)
+@dp.message(lambda message: message.text == "❌ Скасувати")
+async def cancel_order(message: types.Message):
+    await message.answer("Ваше замовлення скасовано.", reply_markup=main_keyboard)
 
-    web.run_app(app, host="0.0.0.0", port=int(os.getenv("PORT", 10000)))
+# =======================
+# Логування всіх повідомлень (для адміна)
+# =======================
+
+@dp.message()
+async def log_all_messages(message: types.Message):
+    if ADMIN_ID:
+        await bot.send_message(ADMIN_ID, f"Отримано повідомлення від {message.from_user.full_name}: {message.text}")
+
+# =======================
+# Запуск бота
+# =======================
+
+async def main():
+    try:
+        logging.info("Бот стартує...")
+        await dp.start_polling(bot)
+    finally:
+        await bot.session.close()
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
