@@ -1,28 +1,39 @@
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-def main_kb():
-    kb = ReplyKeyboardMarkup(resize_keyboard=True)
-    kb.add(KeyboardButton("📦 Каталог"), KeyboardButton("🛒 Кошик"))
-    return kb
+# Меню користувача (reply-кнопки внизу)
+shop_kb = ReplyKeyboardMarkup(
+    resize_keyboard=True,
+    keyboard=[
+        [KeyboardButton(text="🛍 Каталог")],
+        [KeyboardButton(text="🛒 Кошик")]
+    ]
+)
 
-def admin_kb():
-    kb = ReplyKeyboardMarkup(resize_keyboard=True)
-    kb.add(KeyboardButton("➕ Додати товар"))
-    kb.add(KeyboardButton("❌ Видалити товар"))
-    kb.add(KeyboardButton("📋 Переглянути товари"))
-    return kb
+# Меню адміна (reply-кнопки внизу)
+admin_kb = ReplyKeyboardMarkup(
+    resize_keyboard=True,
+    keyboard=[
+        [KeyboardButton(text="➕ Додати товар")],
+        [KeyboardButton(text="❌ Видалити товар")],
+        [KeyboardButton(text="📦 Переглянути товари")]
+    ]
+)
 
-def product_inline_kb(product_id: int):
-    kb = InlineKeyboardMarkup()
-    kb.add(InlineKeyboardButton("➕ Додати у кошик", callback_data=f"add:{product_id}"))
-    kb.add(InlineKeyboardButton("🛒 Переглянути кошик", callback_data="cart:view"))
-    return kb
+def product_inline_kb(product_id: int) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    kb.button(text="➕ Додати у кошик", callback_data=f"add:{product_id}")
+    kb.button(text="🛒 Відкрити кошик", callback_data="cart:open")
+    kb.adjust(1)
+    return kb.as_markup()
 
-def cart_inline_kb(items):
-    kb = InlineKeyboardMarkup()
+def cart_inline_kb(items: list) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    # Кнопки видалення для кожного товару
     for it in items:
-        kb.add(InlineKeyboardButton(f"❌ {it['name']} (–1)", callback_data=f"cart:remove:{it['product_id']}"))
+        kb.button(text=f"❌ {it['name']} (–1)", callback_data=f"cart:remove:{it['product_id']}")
     if items:
-        kb.add(InlineKeyboardButton("🧹 Очистити все", callback_data="cart:clear"))
-        kb.add(InlineKeyboardButton("✅ Оформити замовлення", callback_data="order:start"))
-    return kb
+        kb.button(text="🧹 Очистити все", callback_data="cart:clear")
+        kb.button(text="✅ Оформити замовлення", callback_data="order:start")
+    kb.adjust(1)
+    return kb.as_markup()
