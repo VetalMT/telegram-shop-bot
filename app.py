@@ -17,7 +17,13 @@ WEBHOOK_PATH = f"/webhook/{API_TOKEN}"
 WEBHOOK_URL = f"https://telegram-shop-bot-z03b.onrender.com{WEBHOOK_PATH}"
 PORT = int(os.getenv("PORT", 8000))
 
-bot = Bot(token=API_TOKEN, parse_mode="HTML")
+from aiogram.client.bot import DefaultBotProperties
+
+bot = Bot(
+    token=API_TOKEN,
+    default=DefaultBotProperties(parse_mode="HTML")
+)
+
 dp = Dispatcher(storage=MemoryStorage())
 
 # ------------------- Хендлери -------------------
