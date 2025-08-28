@@ -3,125 +3,93 @@ import logging
 import asyncio
 from aiohttp import web
 from aiogram import Bot, Dispatcher, types
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 from aiogram.filters import Command
-from db import init_db, add_product, delete_product, get_products  # твій модуль db
+from aiogram.fsm.storage.memory import MemoryStorage
+from db import init_db, get_products, add_to_cart, get_cart, create_order, delete_product
 
 logging.basicConfig(level=logging.INFO)
 
-# --- Environment Variables ---
-TOKEN = os.getenv("BOT_TOKEN")
-ADMIN_ID = int(os.getenv("ADMIN_ID", 0))
-PORT = int(os.getenv("PORT", 10000))
-WEBHOOK_PATH = f"/webhook/{TOKEN}"
-WEBHOOK_URL = os.getenv("WEBHOOK_URL", f"https://<твій-домен>.onrender.com{WEBHOOK_PATH}")
+API_TOKEN = os.getenv("BOT_TOKEN")
+if not API_TOKEN:
+    raise ValueError("❌ Не вказано BOT_TOKEN в змінних оточення!")
 
-# --- Bot & Dispatcher ---
-bot = Bot(token=TOKEN)
-dp = Dispatcher()
+WEBHOOK_PATH = f"/webhook/{API_TOKEN}"
+WEBHOOK_URL = f"https://telegram-shop-bot-z03b.onrender.com{WEBHOOK_PATH}"
+PORT = int(os.getenv("PORT", 8000))
 
-# --- Головне меню ---
-main_kb = ReplyKeyboardMarkup(
-    keyboard=[
-        [KeyboardButton(text="➕ Додати товар")],
-        [KeyboardButton(text="❌ Видалити товар")],
-        [KeyboardButton(text="📦 Переглянути товари")]
-    ],
-    resize_keyboard=True
-)
+bot = Bot(token=API_TOKEN, parse_mode="HTML")
+dp = Dispatcher(storage=MemoryStorage())
 
-# --- Старт ---
+# ------------------- Хендлери -------------------
+
 @dp.message(Command("start"))
-async def start(message: types.Message):
-    await message.answer("Вітаю у магазині! Виберіть дію:", reply_markup=main_kb)
+async def cmd_start(message: types.Message):
+    await message.answer("Привіт! Це Telegram Shop Bot 🛒")
 
-# --- Додати товар ---
-@dp.message(lambda m: m.text == "➕ Додати товар")
-async def ask_name(message: types.Message):
-    await message.answer("Введіть назву товару:")
-    dp.workflow_data[message.from_user.id] = {"state": "add_name"}
-
-@dp.message(lambda m: dp.workflow_data.get(m.from_user.id, {}).get("state") == "add_name")
-async def ask_desc(message: types.Message):
-    dp.workflow_data[message.from_user.id]["name"] = message.text
-    dp.workflow_data[message.from_user.id]["state"] = "add_desc"
-    await message.answer("Введіть опис товару:")
-
-@dp.message(lambda m: dp.workflow_data.get(m.from_user.id, {}).get("state") == "add_desc")
-async def ask_price(message: types.Message):
-    dp.workflow_data[message.from_user.id]["description"] = message.text
-    dp.workflow_data[message.from_user.id]["state"] = "add_price"
-    await message.answer("Введіть ціну товару:")
-
-@dp.message(lambda m: dp.workflow_data.get(m.from_user.id, {}).get("state") == "add_price")
-async def save_product(message: types.Message):
-    try:
-        price = float(message.text)
-        data = dp.workflow_data[message.from_user.id]
-        await add_product(data["name"], data["description"], price)
-        await message.answer("✅ Товар додано!", reply_markup=main_kb)
-        dp.workflow_data.pop(message.from_user.id, None)
-    except ValueError:
-        await message.answer("❌ Ціна має бути числом. Спробуйте ще раз.")
-
-# --- Видалити товар ---
-@dp.message(lambda m: m.text == "❌ Видалити товар")
-async def choose_delete(message: types.Message):
+@dp.message(Command("products"))
+async def cmd_products(message: types.Message):
     products = await get_products()
     if not products:
-        await message.answer("⚠️ Немає товарів для видалення.")
+        await message.answer("Поки що немає товарів 😔")
         return
-    kb = ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text=f"{p['id']}. {p['name']}")] for p in products],
-        resize_keyboard=True
-    )
-    dp.workflow_data[message.from_user.id] = {"state": "delete"}
-    await message.answer("Виберіть товар для видалення:", reply_markup=kb)
+    msg = ""
+    for p in products:
+        pid, name, desc, price, photo_id = p
+        msg += f"<b>{name}</b>\n{desc}\nЦіна: {price}₴\nID: {pid}\n\n"
+    await message.answer(msg)
 
-@dp.message(lambda m: dp.workflow_data.get(m.from_user.id, {}).get("state") == "delete")
-async def do_delete(message: types.Message):
-    try:
-        product_id = int(message.text.split(".")[0])
-        await delete_product(product_id)
-        await message.answer("✅ Товар видалено.", reply_markup=main_kb)
-    except Exception:
-        await message.answer("❌ Невірний вибір.", reply_markup=main_kb)
-    dp.workflow_data.pop(message.from_user.id, None)
-
-# --- Переглянути товари ---
-@dp.message(lambda m: m.text == "📦 Переглянути товари")
-async def view_products(message: types.Message):
-    products = await get_products()
-    if not products:
-        await message.answer("⚠️ Немає товарів.")
-        return
-    text = "\n\n".join([f"📌 {p['id']}. {p['name']}\n📝 {p['description']}\n💰 {p['price']} грн" for p in products])
-    await message.answer(text)
-
-# --- Все інше ---
 @dp.message()
-async def unknown(message: types.Message):
-    await message.answer("❓ Не зрозумів... Виберіть категорію з меню.", reply_markup=main_kb)
+async def add_product_to_cart(message: types.Message):
+    text = message.text
+    if text.startswith("add "):
+        try:
+            product_id = int(text.split()[1])
+            await add_to_cart(message.from_user.id, product_id)
+            await message.answer(f"✅ Товар {product_id} додано до корзини")
+        except Exception as e:
+            await message.answer(f"❌ Помилка: {e}")
 
-# --- Webhook handler ---
-async def handle(request):
-    data = await request.json()
-    update = types.Update(**data)
-    await dp.feed_update(bot, update)  # правильно для aiogram 3.x
-    return web.Response(text="OK")
+@dp.message(Command("cart"))
+async def show_cart(message: types.Message):
+    items = await get_cart(message.from_user.id)
+    if not items:
+        await message.answer("Ваша корзина порожня 🛒")
+        return
+    msg = "<b>Ваша корзина:</b>\n\n"
+    for i in items:
+        msg += f"{i['name']} x{i['qty']} — {i['price']}₴\n"
+    total = sum(i['qty']*i['price'] for i in items)
+    msg += f"\n<b>Разом: {total}₴</b>"
+    await message.answer(msg)
 
-# --- App startup & shutdown ---
-async def on_startup(app):
+@dp.message(Command("order"))
+async def make_order(message: types.Message):
+    # Тестові дані для прикладу
+    order_id = await create_order(message.from_user.id, "Імʼя Прізвище", "0991234567", "м. Київ, вул. Тестова 1")
+    if order_id:
+        await message.answer(f"✅ Замовлення #{order_id} створено!")
+    else:
+        await message.answer("❌ У вас порожня корзина")
+
+# ------------------- Webhook -------------------
+
+async def on_startup(app: web.Application):
     await init_db()
-    dp.workflow_data = {}
     await bot.set_webhook(WEBHOOK_URL)
     logging.info(f"Webhook set: {WEBHOOK_URL}")
 
-async def on_shutdown(app):
+async def on_shutdown(app: web.Application):
     await bot.delete_webhook()
     await bot.session.close()
 
-# --- Aiohttp server ---
+async def handle(request: web.Request):
+    if request.match_info.get('token') != API_TOKEN:
+        return web.Response(status=403)
+    data = await request.json()
+    update = types.Update(**data)
+    await dp.feed_update(bot, update)
+    return web.Response()
+
 app = web.Application()
 app.router.add_post(WEBHOOK_PATH, handle)
 app.on_startup.append(on_startup)
