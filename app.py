@@ -1,100 +1,105 @@
 import logging
-import os
 import asyncio
-
 from aiogram import Bot, Dispatcher, types
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 from aiogram.filters import Command
-from aiohttp import web
-
-# наші модулі
-from handlers_admin import admin_router
-from handlers_user import user_router
-from db import init_db
+from db import init_db, add_product, delete_product, get_products
 
 logging.basicConfig(level=logging.INFO)
 
-# 🔑 Токен бота
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-if not BOT_TOKEN:
-    raise ValueError("❌ Не вказано BOT_TOKEN в змінних оточення!")
+TOKEN = "ТВОЙ_ТОКЕН_ТУТ"
 
-# 🛡️ ID адміністратора
-ADMIN_ID = int(os.getenv("ADMIN_ID", 0))
-if not ADMIN_ID:
-    raise ValueError("❌ Не вказано ADMIN_ID в змінних оточення!")
-
-# 🌍 Webhook URL (Render виставляє RENDER_EXTERNAL_URL)
-RENDER_EXTERNAL_URL = os.getenv("RENDER_EXTERNAL_URL")
-if not RENDER_EXTERNAL_URL:
-    raise ValueError("❌ Не вказано RENDER_EXTERNAL_URL в змінних оточення!")
-
-WEBHOOK_URL = f"{RENDER_EXTERNAL_URL}/webhook"
-
-# ================== Налаштування бота ==================
-bot = Bot(token=BOT_TOKEN)
+bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-# ================== Клавіатури ==================
+# --- Головне меню ---
 main_kb = ReplyKeyboardMarkup(
-    keyboard=[
-        [KeyboardButton(text="📦 Каталог"), KeyboardButton(text="🛒 Корзина")]
-    ],
-    resize_keyboard=True
-)
-
-admin_kb = ReplyKeyboardMarkup(
     keyboard=[
         [KeyboardButton(text="➕ Додати товар")],
         [KeyboardButton(text="❌ Видалити товар")],
-        [KeyboardButton(text="📋 Переглянути товари")]
+        [KeyboardButton(text="📦 Переглянути товари")]
     ],
     resize_keyboard=True
 )
 
-# ================== Роутери ==================
-dp.include_router(admin_router)
-dp.include_router(user_router)
-
-# ================== Адмін / старт ==================
+# --- Старт ---
 @dp.message(Command("start"))
-async def start_handler(message: types.Message):
-    if message.from_user.id == ADMIN_ID:
-        await message.answer("Вітаю, адміністратор!", reply_markup=admin_kb)
-    else:
-        await message.answer("Вітаю у магазині!", reply_markup=main_kb)
+async def start(message: types.Message):
+    await message.answer("Вітаю у магазині! Виберіть дію:", reply_markup=main_kb)
 
-# ================== Webhook ==================
-async def handle_webhook(request: web.Request):
-    update = await request.json()
-    await dp.feed_webhook_update(bot, update)
-    return web.Response()
+# --- Додати товар ---
+@dp.message(lambda m: m.text == "➕ Додати товар")
+async def ask_name(message: types.Message):
+    await message.answer("Введіть назву товару:")
+    dp.workflow_data[message.from_user.id] = {"state": "add_name"}
 
-async def on_startup(app: web.Application):
-    # 1) Ініціалізувати БД
+@dp.message(lambda m: dp.workflow_data.get(m.from_user.id, {}).get("state") == "add_name")
+async def ask_desc(message: types.Message):
+    dp.workflow_data[message.from_user.id]["name"] = message.text
+    dp.workflow_data[message.from_user.id]["state"] = "add_desc"
+    await message.answer("Введіть опис товару:")
+
+@dp.message(lambda m: dp.workflow_data.get(m.from_user.id, {}).get("state") == "add_desc")
+async def ask_price(message: types.Message):
+    dp.workflow_data[message.from_user.id]["description"] = message.text
+    dp.workflow_data[message.from_user.id]["state"] = "add_price"
+    await message.answer("Введіть ціну товару:")
+
+@dp.message(lambda m: dp.workflow_data.get(m.from_user.id, {}).get("state") == "add_price")
+async def save_product(message: types.Message):
+    try:
+        price = float(message.text)
+        data = dp.workflow_data[message.from_user.id]
+        await add_product(data["name"], data["description"], price)
+        await message.answer("✅ Товар додано!", reply_markup=main_kb)
+        dp.workflow_data.pop(message.from_user.id, None)
+    except ValueError:
+        await message.answer("❌ Ціна має бути числом. Спробуйте ще раз.")
+
+# --- Видалити товар ---
+@dp.message(lambda m: m.text == "❌ Видалити товар")
+async def choose_delete(message: types.Message):
+    products = await get_products()
+    if not products:
+        await message.answer("⚠️ Немає товарів для видалення.")
+        return
+    kb = ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text=f"{p['id']}. {p['name']}")] for p in products],
+        resize_keyboard=True
+    )
+    dp.workflow_data[message.from_user.id] = {"state": "delete"}
+    await message.answer("Виберіть товар для видалення:", reply_markup=kb)
+
+@dp.message(lambda m: dp.workflow_data.get(m.from_user.id, {}).get("state") == "delete")
+async def do_delete(message: types.Message):
+    try:
+        product_id = int(message.text.split(".")[0])
+        await delete_product(product_id)
+        await message.answer("✅ Товар видалено.", reply_markup=main_kb)
+    except Exception:
+        await message.answer("❌ Невірний вибір.", reply_markup=main_kb)
+    dp.workflow_data.pop(message.from_user.id, None)
+
+# --- Переглянути товари ---
+@dp.message(lambda m: m.text == "📦 Переглянути товари")
+async def view_products(message: types.Message):
+    products = await get_products()
+    if not products:
+        await message.answer("⚠️ Немає товарів.")
+        return
+    text = "\n\n".join([f"📌 {p['id']}. {p['name']}\n📝 {p['description']}\n💰 {p['price']} грн" for p in products])
+    await message.answer(text)
+
+# --- Все інше ---
+@dp.message()
+async def unknown(message: types.Message):
+    await message.answer("❓ Не зрозумів... Виберіть категорію з меню.", reply_markup=main_kb)
+
+# --- Запуск ---
+async def main():
     await init_db()
-    # 2) Прописати вебхук
-    await bot.set_webhook(WEBHOOK_URL)
-    logging.info(f"✅ Webhook встановлено: {WEBHOOK_URL}")
-
-async def on_shutdown(app: web.Application):
-    logging.info("⚠️ Бот зупиняється...")
-    await bot.session.close()
-
-# ================== Запуск ==================
-def main():
-    app = web.Application()
-    app.router.add_post("/webhook", handle_webhook)
-
-    # опційно простий healthcheck на /
-    async def health(request: web.Request):
-        return web.Response(text="OK")
-    app.router.add_get("/", health)
-
-    app.on_startup.append(on_startup)
-    app.on_shutdown.append(on_shutdown)
-
-    web.run_app(app, host="0.0.0.0", port=int(os.getenv("PORT", 10000)))
+    dp.workflow_data = {}
+    await dp.start_polling(bot)
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
