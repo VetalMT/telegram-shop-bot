@@ -12,6 +12,7 @@ if not DATABASE_URL:
 async def init_db():
     async with await psycopg.AsyncConnection.connect(DATABASE_URL) as conn:
         async with conn.cursor() as cur:
+            # Products
             await cur.execute("""
             CREATE TABLE IF NOT EXISTS products(
                 id SERIAL PRIMARY KEY,
@@ -21,12 +22,14 @@ async def init_db():
                 photo_id TEXT
             )
             """)
+            # Carts
             await cur.execute("""
             CREATE TABLE IF NOT EXISTS carts(
                 id SERIAL PRIMARY KEY,
                 user_id BIGINT NOT NULL UNIQUE
             )
             """)
+            # Cart items
             await cur.execute("""
             CREATE TABLE IF NOT EXISTS cart_items(
                 id SERIAL PRIMARY KEY,
@@ -36,6 +39,7 @@ async def init_db():
                 UNIQUE(cart_id, product_id)
             )
             """)
+            # Orders
             await cur.execute("""
             CREATE TABLE IF NOT EXISTS orders(
                 id SERIAL PRIMARY KEY,
@@ -47,6 +51,7 @@ async def init_db():
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
             """)
+            # Order items
             await cur.execute("""
             CREATE TABLE IF NOT EXISTS order_items(
                 id SERIAL PRIMARY KEY,
@@ -159,15 +164,15 @@ async def get_cart(user_id: int) -> List[Dict[str, Any]]:
                 return []
             cart_id = cart[0]
             await cur.execute("""
-                SELECT p.id, p.name, p.price, p.photo_id, ci.qty
+                SELECT p.id, p.name, p.description, p.price, p.photo_id, ci.qty
                 FROM cart_items ci 
                 JOIN products p ON p.id = ci.product_id
                 WHERE ci.cart_id=%s
             """, (cart_id,))
             rows = await cur.fetchall()
             return [
-                {"product_id": pid, "name": name, "price": price, "photo_id": photo_id, "qty": qty}
-                for pid, name, price, photo_id, qty in rows
+                {"product_id": pid, "name": name, "description": desc, "price": price, "photo_id": photo_id, "qty": qty}
+                for pid, name, desc, price, photo_id, qty in rows
             ]
 
 # ---------- ORDERS ----------
