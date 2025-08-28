@@ -107,7 +107,7 @@ async def unknown(message: types.Message):
 async def handle(request):
     data = await request.json()
     update = types.Update(**data)
-    await dp.feed_update(update)  # правильно для aiogram 3.x
+    await dp.feed_update(bot, update)  # правильно для aiogram 3.x
     return web.Response(text="OK")
 
 # --- App startup & shutdown ---
