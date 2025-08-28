@@ -1,18 +1,15 @@
 import os
 import psycopg
-from psycopg.rows import dict_row
 from typing import List, Optional, Tuple, Dict, Any
 
-# URL до бази з env (Render автоматично створює DATABASE_URL)
 DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
     raise ValueError("❌ Не вказано DATABASE_URL в змінних оточення!")
 
-# ---------- INIT ----------
+# ------------------- INIT DB -------------------
 async def init_db():
     async with await psycopg.AsyncConnection.connect(DATABASE_URL) as conn:
         async with conn.cursor() as cur:
-            # Products
             await cur.execute("""
             CREATE TABLE IF NOT EXISTS products(
                 id SERIAL PRIMARY KEY,
@@ -20,27 +17,18 @@ async def init_db():
                 description TEXT NOT NULL,
                 price REAL NOT NULL,
                 photo_id TEXT
-            )
-            """)
-            # Carts
-            await cur.execute("""
+            );
             CREATE TABLE IF NOT EXISTS carts(
                 id SERIAL PRIMARY KEY,
                 user_id BIGINT NOT NULL UNIQUE
-            )
-            """)
-            # Cart items
-            await cur.execute("""
+            );
             CREATE TABLE IF NOT EXISTS cart_items(
                 id SERIAL PRIMARY KEY,
                 cart_id INT NOT NULL REFERENCES carts(id) ON DELETE CASCADE,
                 product_id INT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
                 qty INT NOT NULL DEFAULT 1,
                 UNIQUE(cart_id, product_id)
-            )
-            """)
-            # Orders
-            await cur.execute("""
+            );
             CREATE TABLE IF NOT EXISTS orders(
                 id SERIAL PRIMARY KEY,
                 user_id BIGINT NOT NULL,
@@ -49,21 +37,18 @@ async def init_db():
                 address TEXT NOT NULL,
                 total REAL NOT NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-            """)
-            # Order items
-            await cur.execute("""
+            );
             CREATE TABLE IF NOT EXISTS order_items(
                 id SERIAL PRIMARY KEY,
                 order_id INT NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
                 product_id INT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
                 qty INT NOT NULL,
                 price REAL NOT NULL
-            )
+            );
             """)
         await conn.commit()
 
-# ---------- PRODUCTS ----------
+# ------------------- PRODUCTS -------------------
 async def add_product(name: str, description: str, price: float, photo_id: Optional[str]) -> int:
     async with await psycopg.AsyncConnection.connect(DATABASE_URL) as conn:
         async with conn.cursor() as cur:
@@ -84,13 +69,6 @@ async def get_products(limit: int = 50, offset: int = 0) -> List[Tuple]:
             )
             return await cur.fetchall()
 
-async def count_products() -> int:
-    async with await psycopg.AsyncConnection.connect(DATABASE_URL) as conn:
-        async with conn.cursor() as cur:
-            await cur.execute("SELECT COUNT(*) FROM products")
-            (count,) = await cur.fetchone()
-            return int(count)
-
 async def get_product(product_id: int) -> Optional[Tuple]:
     async with await psycopg.AsyncConnection.connect(DATABASE_URL) as conn:
         async with conn.cursor() as cur:
@@ -107,7 +85,7 @@ async def delete_product(product_id: int) -> bool:
             await conn.commit()
             return cur.rowcount > 0
 
-# ---------- CART ----------
+# ------------------- CART -------------------
 async def _get_or_create_cart_id(conn, user_id: int) -> int:
     async with conn.cursor() as cur:
         await cur.execute("SELECT id FROM carts WHERE user_id=%s", (user_id,))
@@ -164,18 +142,18 @@ async def get_cart(user_id: int) -> List[Dict[str, Any]]:
                 return []
             cart_id = cart[0]
             await cur.execute("""
-                SELECT p.id, p.name, p.description, p.price, p.photo_id, ci.qty
+                SELECT p.id, p.name, p.price, p.photo_id, ci.qty
                 FROM cart_items ci 
                 JOIN products p ON p.id = ci.product_id
                 WHERE ci.cart_id=%s
             """, (cart_id,))
             rows = await cur.fetchall()
             return [
-                {"product_id": pid, "name": name, "description": desc, "price": price, "photo_id": photo_id, "qty": qty}
-                for pid, name, desc, price, photo_id, qty in rows
+                {"product_id": pid, "name": name, "price": price, "photo_id": photo_id, "qty": qty}
+                for pid, name, price, photo_id, qty in rows
             ]
 
-# ---------- ORDERS ----------
+# ------------------- ORDERS -------------------
 async def create_order(user_id: int, full_name: str, phone: str, address: str) -> Optional[int]:
     items = await get_cart(user_id)
     if not items:
