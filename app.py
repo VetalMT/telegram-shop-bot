@@ -1,5 +1,5 @@
-import logging
 import os
+import logging
 import asyncio
 from aiohttp import web
 from aiogram import Bot, Dispatcher, types
@@ -9,11 +9,12 @@ from db import init_db, add_product, delete_product, get_products
 
 logging.basicConfig(level=logging.INFO)
 
-TOKEN = os.getenv("TOKEN")  # твій токен в Environment Variables
-WEBHOOK_PATH = f"/webhook/{TOKEN}"
-WEBHOOK_URL = f"https://{os.getenv('RENDER_EXTERNAL_HOSTNAME')}{WEBHOOK_PATH}"
+# --- Environment Variables ---
+TOKEN = os.getenv("BOT_TOKEN")
 PORT = int(os.getenv("PORT", 10000))
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # Наприклад: https://твій-домен.onrender.com/webhook/<BOT_TOKEN>
 
+# --- Бот і диспетчер ---
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 dp.workflow_data = {}
@@ -101,26 +102,23 @@ async def view_products(message: types.Message):
 async def unknown(message: types.Message):
     await message.answer("❓ Не зрозумів... Виберіть категорію з меню.", reply_markup=main_kb)
 
-# --- Вебхук ---
+# --- Webhook handler ---
 async def handle(request):
-    data = await request.json()
-    update = types.Update(**data)
-    await dp.feed_update(update)  # feed_update замість process_update
-    return web.Response(text="ok")
+    update = types.Update(**await request.json())
+    await dp.update_queue.put(update)
+    return web.Response()
 
-async def on_startup(app):
+# --- Запуск ---
+async def on_startup():
     await init_db()
+    # Встановлюємо вебхук на Telegram
     await bot.set_webhook(WEBHOOK_URL)
-    logging.info(f"Webhook set to {WEBHOOK_URL}")
-
-async def on_shutdown(app):
-    await bot.delete_webhook()
-    await bot.session.close()
-
-app = web.Application()
-app.router.add_post(WEBHOOK_PATH, handle)
-app.on_startup.append(on_startup)
-app.on_shutdown.append(on_shutdown)
+    logging.info(f"Webhook set: {WEBHOOK_URL}")
 
 if __name__ == "__main__":
+    app = web.Application()
+    app.router.add_post(f"/webhook/{TOKEN}", handle)
+
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(on_startup())
     web.run_app(app, port=PORT)
