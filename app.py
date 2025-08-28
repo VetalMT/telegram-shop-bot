@@ -1,4 +1,5 @@
 import logging
+import os
 import asyncio
 from aiogram import Bot, Dispatcher, types
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
@@ -8,10 +9,12 @@ from db import init_db, add_product, delete_product, get_products
 
 logging.basicConfig(level=logging.INFO)
 
-TOKEN = "8327744046:AAHJea2egeTg8K5I0x5h6vA3qWu_JPUR5jg"  # заміни на реальний токен
+TOKEN = os.getenv("BOT_TOKEN")  # твій токен через Environment Variables
+PORT = int(os.getenv("PORT", 10000))  # порт Render
+WEBHOOK_BASE = f"https://{os.getenv('RENDER_EXTERNAL_HOSTNAME')}"
 WEBHOOK_PATH = f"/webhook/{TOKEN}"
-WEBHOOK_URL = f"https://ТВОЙ_ДОМЕН/render.com{WEBHOOK_PATH}"  # твій URL Render
-PORT = 10000  # Render надає змінну PORT, можна використати
+WEBHOOK_URL = WEBHOOK_BASE + WEBHOOK_PATH
+
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
@@ -98,21 +101,28 @@ async def view_products(message: types.Message):
 async def unknown(message: types.Message):
     await message.answer("❓ Не зрозумів... Виберіть категорію з меню.", reply_markup=main_kb)
 
-# --- aiohttp сервер для webhook ---
+# --- Webhook обробник ---
 async def handle(request):
     update = types.Update(**await request.json())
     await dp.process_update(update)
-    return web.Response()
+    return web.Response(text="ok")
 
+# --- Старт сервера ---
 async def on_startup(app):
-    await bot.delete_webhook()
-    await bot.set_webhook(WEBHOOK_URL)
     await init_db()
     dp.workflow_data = {}
+    # Встановлюємо webhook
+    await bot.set_webhook(WEBHOOK_URL)
+
+async def on_shutdown(app):
+    logging.warning("Shutting down..")
+    await bot.delete_webhook()
+    await bot.session.close()
 
 app = web.Application()
 app.router.add_post(WEBHOOK_PATH, handle)
 app.on_startup.append(on_startup)
+app.on_cleanup.append(on_shutdown)
 
 if __name__ == "__main__":
     web.run_app(app, port=PORT)
