@@ -1,8 +1,3 @@
-from aiogram import Router, types
-from aiogram.filters import Command
+from handlers_user import start_handler, catalog_handler, cart_handler
 
-shop_router = Router(name="shop")
-
-@shop_router.message(Command("shop"))
-async def shop_start(message: types.Message):
-    await message.answer("🛍️ Ласкаво просимо в магазин!\nВикористовуйте кнопки нижче ⬇️")
+# Тут можна об'єднати всі хендлери покупця, підключати до Dispatcher
