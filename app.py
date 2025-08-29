@@ -1,106 +1,110 @@
 import os
-import asyncio
+import logging
 from aiogram import Bot, Dispatcher, types
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
-from aiogram.filters.state import State, StatesGroup
-from aiogram.fsm.context import FSMContext
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.fsm.context import FSMContext
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 import asyncpg
-from dotenv import load_dotenv
+from contextlib import asynccontextmanager
 
-load_dotenv()
+logging.basicConfig(level=logging.INFO)
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-WEBHOOK_PATH = f"/webhook/{BOT_TOKEN}"
-WEBHOOK_URL = os.getenv("WEBHOOK_URL") + WEBHOOK_PATH
-DATABASE_URL = os.getenv("DATABASE_URL")
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # Наприклад: https://shop-x54i.onrender.com
+DATABASE_URL = os.getenv("DATABASE_URL")  # PostgreSQL connection string
 
-bot = Bot(token=BOT_TOKEN)
-dp = Dispatcher(storage=MemoryStorage())
-app = FastAPI()
+bot = Bot(token=BOT_TOKEN, parse_mode="HTML")
+storage = MemoryStorage()
+dp = Dispatcher(storage=storage)
+db_pool = None
 
-# --- FSM States ---
-class ProductStates(StatesGroup):
-    waiting_name = State()
-    waiting_price = State()
+# --- FSM стани ---
+from aiogram.fsm.state import StatesGroup, State
 
-# --- DB Pool ---
-db_pool: asyncpg.pool.Pool = None
+class Form(StatesGroup):
+    waiting_for_name = State()
+    waiting_for_address = State()
+    waiting_for_confirmation = State()
 
-async def get_db_pool():
+# --- FastAPI lifespan ---
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     global db_pool
-    if not db_pool:
-        db_pool = await asyncpg.create_pool(DATABASE_URL)
-    return db_pool
+    # Startup
+    db_pool = await asyncpg.create_pool(DATABASE_URL)
+    await bot.set_webhook(f"{WEBHOOK_URL}/webhook/{BOT_TOKEN}")
+    yield
+    # Shutdown
+    await bot.delete_webhook()
+    if db_pool:
+        await db_pool.close()
 
-# --- Keyboards ---
-def main_menu():
-    kb = InlineKeyboardMarkup()
-    kb.add(InlineKeyboardButton("🛒 Створити продукт", callback_data="new_product"))
-    kb.add(InlineKeyboardButton("📦 Мої продукти", callback_data="list_products"))
-    return kb
+app = FastAPI(lifespan=lifespan)
 
-# --- Handlers ---
-@dp.message()
-async def start_handler(message: types.Message):
-    await message.answer("Привіт! Це твій магазин.", reply_markup=main_menu())
+# --- Telegram keyboard ---
+main_keyboard = ReplyKeyboardMarkup(
+    keyboard=[
+        [KeyboardButton(text="🎫 Створити квиток")],
+        [KeyboardButton(text="ℹ Інформація")]
+    ],
+    resize_keyboard=True
+)
 
-@dp.callback_query()
-async def callback_handler(query: types.CallbackQuery, state: FSMContext):
-    if query.data == "new_product":
-        await query.message.answer("Введи назву продукту:")
-        await state.set_state(ProductStates.waiting_name)
-    elif query.data == "list_products":
-        pool = await get_db_pool()
-        async with pool.acquire() as conn:
-            products = await conn.fetch("SELECT name, price FROM products ORDER BY id DESC LIMIT 10")
-        text = "\n".join([f"{p['name']} — {p['price']}₴" for p in products]) or "Продуктів немає"
-        await query.message.answer(text)
+# --- Telegram handlers ---
+@dp.message(commands=["start"])
+async def cmd_start(message: types.Message, state: FSMContext):
+    await message.answer("Привіт! Я бот для створення PDF-квитків.", reply_markup=main_keyboard)
 
-@dp.message(ProductStates.waiting_name)
-async def product_name(message: types.Message, state: FSMContext):
+@dp.message(lambda message: message.text == "🎫 Створити квиток")
+async def create_ticket(message: types.Message, state: FSMContext):
+    await message.answer("Введіть ім'я пасажира:")
+    await state.set_state(Form.waiting_for_name)
+
+@dp.message(Form.waiting_for_name)
+async def process_name(message: types.Message, state: FSMContext):
     await state.update_data(name=message.text)
-    await message.answer("Введи ціну продукту:")
-    await state.set_state(ProductStates.waiting_price)
+    await message.answer("Введіть адресу:")
+    await state.set_state(Form.waiting_for_address)
 
-@dp.message(ProductStates.waiting_price)
-async def product_price(message: types.Message, state: FSMContext):
+@dp.message(Form.waiting_for_address)
+async def process_address(message: types.Message, state: FSMContext):
+    await state.update_data(address=message.text)
     data = await state.get_data()
-    name = data.get("name")
-    try:
-        price = float(message.text)
-    except ValueError:
-        await message.answer("Введи число для ціни.")
-        return
-    pool = await get_db_pool()
-    async with pool.acquire() as conn:
-        await conn.execute("INSERT INTO products(name, price) VALUES($1, $2)", name, price)
-    await message.answer(f"Продукт {name} додано за {price}₴", reply_markup=main_menu())
+    await message.answer(f"Підтвердіть дані:\nІм'я: {data['name']}\nАдреса: {data['address']}",
+                         reply_markup=ReplyKeyboardMarkup(
+                             keyboard=[[KeyboardButton("✅ Підтвердити")]],
+                             resize_keyboard=True
+                         ))
+    await state.set_state(Form.waiting_for_confirmation)
+
+@dp.message(Form.waiting_for_confirmation)
+async def process_confirmation(message: types.Message, state: FSMContext):
+    if message.text == "✅ Підтвердити":
+        data = await state.get_data()
+        # Тут вставити генерацію PDF та збереження у базу
+        await message.answer(f"Квиток створено для {data['name']}!", reply_markup=main_keyboard)
     await state.clear()
 
-# --- FastAPI Webhook ---
-@app.post(WEBHOOK_PATH)
+@dp.message(lambda message: message.text == "ℹ Інформація")
+async def info(message: types.Message):
+    await message.answer("Це тестовий бот для створення PDF-квитків через Telegram.")
+
+# --- Webhook endpoint для Render ---
+@app.post(f"/webhook/{BOT_TOKEN}")
 async def telegram_webhook(request: Request):
     data = await request.json()
     update = types.Update(**data)
     await dp.feed_update(update)
     return JSONResponse(content={"ok": True})
 
-# --- Startup/Shutdown ---
-@app.on_event("startup")
-async def on_startup():
-    await bot.set_webhook(WEBHOOK_URL)
-    await get_db_pool()
+# --- FastAPI корінь (можна для перевірки) ---
+@app.get("/")
+async def root():
+    return {"status": "bot is running"}
 
-@app.on_event("shutdown")
-async def on_shutdown():
-    await bot.delete_webhook()
-    if db_pool:
-        await db_pool.close()
-
-# --- Run via Uvicorn ---
+# --- Запуск uvicorn тільки локально ---
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", 8000)))
