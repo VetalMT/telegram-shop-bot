@@ -1,22 +1,22 @@
-# app.py
 from fastapi import FastAPI, Request
 from aiogram import Bot, Dispatcher, types
 from aiogram.types import KeyboardButton, ReplyKeyboardMarkup
 from dotenv import load_dotenv
 import os
 
+# --- Load env ---
 load_dotenv()
-
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 WEBHOOK_PATH = f"/webhook/{BOT_TOKEN}"
 WEBHOOK_URL = f"https://{os.getenv('RENDER_EXTERNAL_HOSTNAME')}{WEBHOOK_PATH}"
 PORT = int(os.environ.get("PORT", 10000))
 
+# --- Bot and dispatcher ---
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
+# --- FastAPI app ---
 app = FastAPI()
-
 
 # --- Keyboards ---
 main_keyboard = ReplyKeyboardMarkup(
@@ -25,7 +25,6 @@ main_keyboard = ReplyKeyboardMarkup(
     ],
     resize_keyboard=True
 )
-
 
 # --- Handlers ---
 @dp.message()
@@ -39,7 +38,6 @@ async def handle_messages(message: types.Message):
     else:
         await message.answer("Невідома команда.")
 
-
 # --- Webhook endpoint ---
 @app.post(WEBHOOK_PATH)
 async def telegram_webhook(request: Request):
@@ -47,12 +45,10 @@ async def telegram_webhook(request: Request):
     await dp.process_update(update)
     return {"ok": True}
 
-
 # --- Startup / Shutdown ---
 @app.on_event("startup")
 async def on_startup():
     await bot.set_webhook(WEBHOOK_URL)
-
 
 @app.on_event("shutdown")
 async def on_shutdown():
