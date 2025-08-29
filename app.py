@@ -1,151 +1,102 @@
 import os
 import logging
 from aiohttp import web
-from dotenv import load_dotenv
-from aiogram import Bot, Dispatcher, types
-from aiogram.filters import Command
-from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
-from databases import Database
-from sqlalchemy import MetaData, Table, Column, Integer, String, Float
+from aiogram import Bot, Dispatcher, F
+from aiogram.types import Message, Update
+from aiogram.fsm.storage.memory import MemoryStorage
+import asyncpg
 
-# ================== Налаштування логів ==================
+# ------------------------
+# Налаштування логів
+# ------------------------
 logging.basicConfig(level=logging.INFO)
 
-# ================== Завантаження змінних ==================
-load_dotenv()
-
+# ------------------------
+# ENV змінні (Render → Environment)
+# ------------------------
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-ADMIN_ID = int(os.getenv("ADMIN_ID"))
+WEBHOOK_PATH = "/webhook"
+WEBHOOK_URL = f"{os.getenv('RENDER_EXTERNAL_URL')}{WEBHOOK_PATH}"
 
+DB_HOST = os.getenv("DB_HOST")
+DB_NAME = os.getenv("DB_NAME")
 DB_USER = os.getenv("DB_USER")
 DB_PASSWORD = os.getenv("DB_PASSWORD")
-DB_HOST = os.getenv("DB_HOST")
-DB_PORT = os.getenv("DB_PORT", 5432)
-DB_NAME = os.getenv("DB_NAME")
 
-WEBHOOK_URL = os.getenv("RENDER_EXTERNAL_URL") + "/webhook"
+PORT = int(os.getenv("PORT", 10000))
 
-# ================== Підключення бота ==================
+# ------------------------
+# Ініціалізація
+# ------------------------
 bot = Bot(token=BOT_TOKEN)
-dp = Dispatcher()
+storage = MemoryStorage()
+dp = Dispatcher(storage=storage)
 
-# ================== Підключення бази даних ==================
-DATABASE_URL = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
-database = Database(DATABASE_URL)
-metadata = MetaData()
-
-# ================== Таблиці ==================
-products = Table(
-    "products",
-    metadata,
-    Column("id", Integer, primary_key=True),
-    Column("name", String),
-    Column("description", String),
-    Column("price", Float),
-    Column("stock", Integer, default=0)
-)
-
-orders = Table(
-    "orders",
-    metadata,
-    Column("id", Integer, primary_key=True),
-    Column("user_id", String),
-    Column("product_id", Integer),
-    Column("quantity", Integer, default=1),
-    Column("status", String, default="pending")
-)
-
-# ================== Хендлери ==================
-
-@dp.message(Command(commands=["start"]))
-async def cmd_start(message: types.Message):
-    await message.answer("Ласкаво просимо до нашого магазину! Використовуйте /products для перегляду товарів.")
-
-@dp.message(Command(commands=["products"]))
-async def cmd_products(message: types.Message):
-    query = products.select()
-    items = await database.fetch_all(query)
-    if not items:
-        await message.answer("Товари відсутні.")
-        return
-
-    for item in items:
-        kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="Купити", callback_data=f"buy:{item['id']}")]
-        ])
-        await message.answer(f"{item['name']}\n{item['description']}\nЦіна: {item['price']} грн\nНа складі: {item['stock']}", reply_markup=kb)
-
-@dp.callback_query(lambda c: c.data and c.data.startswith("buy:"))
-async def process_buy(callback_query: CallbackQuery):
-    product_id = int(callback_query.data.split(":")[1])
-    query = products.select().where(products.c.id == product_id)
-    item = await database.fetch_one(query)
-    if not item or item['stock'] <= 0:
-        await callback_query.message.answer("Цей товар закінчився.")
-        return
-
-    await database.execute(
-        orders.insert().values(user_id=str(callback_query.from_user.id),
-                               product_id=product_id,
-                               quantity=1)
+# ------------------------
+# Підключення до PostgreSQL
+# ------------------------
+async def create_db_pool():
+    return await asyncpg.create_pool(
+        user=DB_USER,
+        password=DB_PASSWORD,
+        database=DB_NAME,
+        host=DB_HOST
     )
-    await database.execute(
-        products.update().where(products.c.id == product_id).values(stock=item['stock'] - 1)
-    )
-    await callback_query.message.answer("Товар додано до замовлень. Очікуйте на підтвердження.")
 
-@dp.message(Command(commands=["orders"]))
-async def cmd_orders(message: types.Message):
-    query = orders.select().where(orders.c.user_id == str(message.from_user.id))
-    user_orders = await database.fetch_all(query)
-    if not user_orders:
-        await message.answer("У вас немає замовлень.")
-        return
+db_pool = None
 
-    text = "Ваші замовлення:\n"
-    for o in user_orders:
-        product = await database.fetch_one(products.select().where(products.c.id == o['product_id']))
-        text += f"{product['name']} x{o['quantity']} - Статус: {o['status']}\n"
-    await message.answer(text)
+# ------------------------
+# Хендлери
+# ------------------------
+@dp.message(F.text == "/start")
+async def start_handler(message: Message):
+    await message.answer("👋 Привіт! Бот успішно працює на Aiogram 3 + PostgreSQL 🚀")
 
-@dp.message(Command(commands=["add_product"]))
-async def cmd_add_product(message: types.Message):
-    if message.from_user.id != ADMIN_ID:
-        await message.answer("Ви не адмін.")
-        return
+@dp.message()
+async def echo_handler(message: Message):
+    await message.answer(f"Ти написав: {message.text}")
+
+# ------------------------
+# Вебхук
+# ------------------------
+async def handle_webhook(request):
     try:
-        args = message.text.split(maxsplit=4)
-        _, name, description, price, stock = args
-        await database.execute(products.insert().values(
-            name=name,
-            description=description,
-            price=float(price),
-            stock=int(stock)
-        ))
-        await message.answer("Товар додано.")
+        data = await request.json()
+        update = Update.model_validate(data)
+        await dp.feed_update(bot, update)  # ✅ Aiogram 3 синтаксис
     except Exception as e:
-        await message.answer(f"Помилка: {e}")
+        logging.error(f"Webhook error: {e}")
+    return web.Response()
 
-# ================== Webhook ==================
-async def handle_webhook(request: web.Request):
-    update = types.Update(**await request.json())
-    await dp.process_update(update)
-    return web.Response(text="ok")
+# ------------------------
+# On Startup / Shutdown
+# ------------------------
+async def on_startup(app: web.Application):
+    global db_pool
+    db_pool = await create_db_pool()
+    logging.info("✅ Database connected")
 
-# ================== Запуск ==================
-async def on_startup(app):
-    await database.connect()
-    logging.info(f"✅ Webhook встановлено: {WEBHOOK_URL}")
+    # Встановлюємо вебхук
     await bot.set_webhook(WEBHOOK_URL)
+    logging.info(f"✅ Webhook set to {WEBHOOK_URL}")
 
-async def on_shutdown(app):
+async def on_shutdown(app: web.Application):
     await bot.delete_webhook()
-    await database.disconnect()
+    await bot.session.close()
+    if db_pool:
+        await db_pool.close()
+    logging.info("🛑 Bot stopped")
 
-app = web.Application()
-app.router.add_post("/webhook", handle_webhook)
-app.on_startup.append(on_startup)
-app.on_shutdown.append(on_shutdown)
+# ------------------------
+# Запуск aiohttp
+# ------------------------
+def main():
+    app = web.Application()
+    app.router.add_post(WEBHOOK_PATH, handle_webhook)
+    app.on_startup.append(on_startup)
+    app.on_shutdown.append(on_shutdown)
+
+    web.run_app(app, port=PORT)
 
 if __name__ == "__main__":
-    web.run_app(app, port=int(os.getenv("PORT", 10000)))
+    main()
