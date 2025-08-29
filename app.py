@@ -1,136 +1,166 @@
-import os
 import logging
-from aiohttp import web
-from dotenv import load_dotenv
-
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
-from aiogram.webhook.aiohttp_server import SimpleRequestHandler
+from aiogram.types import Message
+from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.fsm.context import FSMContext
+from fastapi import FastAPI, Request
+import uvicorn
+import os
 
-# -----------------------
-# Завантаження токена
-# -----------------------
-load_dotenv()
-BOT_TOKEN = os.getenv("BOT_TOKEN")
+# -------------------
+# Налаштування
+# -------------------
+TOKEN = os.getenv("BOT_TOKEN")  # 🔑 твій токен сюди
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # 🔗 твій домен + /webhook
 
-if not BOT_TOKEN:
-    raise ValueError("❌ BOT_TOKEN не знайдено у .env")
-
-# -----------------------
-# Налаштування логів
-# -----------------------
 logging.basicConfig(level=logging.INFO)
+bot = Bot(token=TOKEN)
+dp = Dispatcher(storage=MemoryStorage())
+app = FastAPI()
 
-# -----------------------
-# Ініціалізація бота
-# -----------------------
-bot = Bot(token=BOT_TOKEN)
-dp = Dispatcher()
+# -------------------
+# Дані магазину
+# -------------------
+PRODUCTS = {
+    "📱 Телефони": ["iPhone 15", "Samsung S23", "Xiaomi 13"],
+    "💻 Ноутбуки": ["MacBook Pro", "Dell XPS", "Lenovo ThinkPad"]
+}
+CART = {}  # {user_id: [items]}
 
-# -----------------------
-# Головне меню (категорії)
-# -----------------------
-main_kb = types.ReplyKeyboardMarkup(
-    keyboard=[
-        [types.KeyboardButton(text="📱 Телефони"),
-         types.KeyboardButton(text="💻 Ноутбуки")],
-        [types.KeyboardButton(text="🛒 Корзина")]
-    ],
-    resize_keyboard=True
-)
+# -------------------
+# Адмін
+# -------------------
+ADMIN_IDS = [123456789]  # 👉 заміни на свій Telegram ID
 
-# -----------------------
-# Тимчасове сховище (без БД)
-# -----------------------
-CART = {}
-
-# -----------------------
+# -------------------
 # Хендлери
-# -----------------------
+# -------------------
 @dp.message(Command("start"))
-async def cmd_start(message: types.Message):
-    await message.answer(
-        "Привіт 👋 Це тестовий магазин!\nОберіть категорію товарів нижче:",
-        reply_markup=main_kb
+async def start_handler(message: Message, state: FSMContext):
+    kb = types.ReplyKeyboardMarkup(
+        keyboard=[
+            [types.KeyboardButton(text="📱 Телефони"), types.KeyboardButton(text="💻 Ноутбуки")],
+            [types.KeyboardButton(text="🛒 Корзина")]
+        ],
+        resize_keyboard=True
     )
+    await message.answer("Вітаю у нашому магазині! Оберіть категорію:", reply_markup=kb)
 
-# Вибір категорії
-@dp.message(F.text == "📱 Телефони")
-async def show_phones(message: types.Message):
-    kb = types.InlineKeyboardMarkup(inline_keyboard=[
-        [types.InlineKeyboardButton(text="iPhone 14 - 1000$", callback_data="add_iphone")],
-        [types.InlineKeyboardButton(text="Samsung S23 - 900$", callback_data="add_samsung")]
-    ])
-    await message.answer("📱 Телефони:", reply_markup=kb)
+@dp.message(F.text.in_(PRODUCTS.keys()))
+async def show_products(message: Message):
+    category = message.text
+    kb = types.ReplyKeyboardMarkup(
+        keyboard=[[types.KeyboardButton(text=p)] for p in PRODUCTS[category]] + [[types.KeyboardButton(text="⬅️ Назад")]],
+        resize_keyboard=True
+    )
+    await message.answer(f"Оберіть товар із категорії {category}:", reply_markup=kb)
 
-@dp.message(F.text == "💻 Ноутбуки")
-async def show_laptops(message: types.Message):
-    kb = types.InlineKeyboardMarkup(inline_keyboard=[
-        [types.InlineKeyboardButton(text="MacBook Air - 1500$", callback_data="add_macbook")],
-        [types.InlineKeyboardButton(text="Dell XPS - 1300$", callback_data="add_dell")]
-    ])
-    await message.answer("💻 Ноутбуки:", reply_markup=kb)
-
-# Додавання товарів у корзину
-@dp.callback_query(F.data.startswith("add_"))
-async def add_to_cart(callback: types.CallbackQuery):
-    user_id = callback.from_user.id
-    product_map = {
-        "add_iphone": "iPhone 14 - 1000$",
-        "add_samsung": "Samsung S23 - 900$",
-        "add_macbook": "MacBook Air - 1500$",
-        "add_dell": "Dell XPS - 1300$"
-    }
-    product = product_map.get(callback.data, "Невідомий товар")
-
-    if user_id not in CART:
-        CART[user_id] = []
-    CART[user_id].append(product)
-
-    await callback.answer("✅ Додано у корзину")
-    await callback.message.edit_reply_markup(reply_markup=None)
-
-# Перегляд корзини
-@dp.message(F.text == "🛒 Корзина")
-async def show_cart(message: types.Message):
+@dp.message(F.text.in_(sum(PRODUCTS.values(), [])))
+async def add_to_cart(message: Message):
     user_id = message.from_user.id
-    if user_id not in CART or not CART[user_id]:
-        await message.answer("Ваша корзина порожня 🛒")
-    else:
-        items = "\n".join(CART[user_id])
-        await message.answer(f"🛒 Ваша корзина:\n\n{items}")
+    CART.setdefault(user_id, []).append(message.text)
+    await message.answer(f"✅ {message.text} додано у корзину!")
 
-# -----------------------
-# WEBHOOK
-# -----------------------
-WEBHOOK_PATH = "/webhook"
-WEBHOOK_HOST = os.getenv("RENDER_EXTERNAL_URL")  # Render дає URL
-WEBHOOK_URL = f"{WEBHOOK_HOST}{WEBHOOK_PATH}" if WEBHOOK_HOST else None
+@dp.message(F.text == "🛒 Корзина")
+async def show_cart(message: Message):
+    user_id = message.from_user.id
+    items = CART.get(user_id, [])
+    if not items:
+        await message.answer("Ваша корзина порожня 🛍️")
+        return
+    text = "🛒 Ваша корзина:\n- " + "\n- ".join(items)
+    await message.answer(text)
 
-async def on_startup(app):
-    if WEBHOOK_URL:
-        await bot.set_webhook(WEBHOOK_URL)
-        logging.info(f"✅ Webhook встановлено: {WEBHOOK_URL}")
-    else:
-        logging.warning("⚠️ WEBHOOK_URL не знайдено")
+@dp.message(F.text == "⬅️ Назад")
+async def back_to_menu(message: Message):
+    kb = types.ReplyKeyboardMarkup(
+        keyboard=[
+            [types.KeyboardButton(text="📱 Телефони"), types.KeyboardButton(text="💻 Ноутбуки")],
+            [types.KeyboardButton(text="🛒 Корзина")]
+        ],
+        resize_keyboard=True
+    )
+    await message.answer("⬅️ Ви повернулися у головне меню.", reply_markup=kb)
 
-async def on_shutdown(app):
-    logging.info("♻️ Бот вимикається..")
+# -------------------
+# Адмін-панель
+# -------------------
+@dp.message(Command("admin"))
+async def admin_panel(message: types.Message):
+    if message.from_user.id not in ADMIN_IDS:
+        await message.answer("⛔ У вас немає доступу до адмін-панелі.")
+        return
+
+    kb = types.ReplyKeyboardMarkup(
+        keyboard=[
+            [types.KeyboardButton(text="📦 Замовлення")],
+            [types.KeyboardButton(text="➕ Додати товар")],
+            [types.KeyboardButton(text="⬅️ Вийти")]
+        ],
+        resize_keyboard=True
+    )
+    await message.answer("🔐 Адмін-панель:", reply_markup=kb)
+
+@dp.message(F.text == "📦 Замовлення")
+async def show_orders(message: types.Message):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+
+    if not CART:
+        await message.answer("Поки що замовлень немає 📭")
+        return
+
+    text = "📦 Усі замовлення:\n\n"
+    for uid, items in CART.items():
+        text += f"👤 {uid}:\n - " + "\n - ".join(items) + "\n\n"
+
+    await message.answer(text)
+
+@dp.message(F.text == "➕ Додати товар")
+async def add_product_admin(message: types.Message, state: FSMContext):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+    await message.answer("✏️ Введіть новий товар у форматі: Категорія | Назва")
+    await state.set_state("add_product")
+
+@dp.message(F.text, state="add_product")
+async def save_new_product(message: types.Message, state: FSMContext):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+    try:
+        category, product = message.text.split("|")
+        category, product = category.strip(), product.strip()
+        if category not in PRODUCTS:
+            PRODUCTS[category] = []
+        PRODUCTS[category].append(product)
+        await message.answer(f"✅ Товар '{product}' додано у категорію '{category}'!")
+    except:
+        await message.answer("❌ Формат неправильний. Використовуйте: Категорія | Назва")
+    await state.clear()
+
+@dp.message(F.text == "⬅️ Вийти")
+async def exit_admin(message: types.Message):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+    await start_handler(message, None)
+
+# -------------------
+# Webhook
+# -------------------
+@app.post("/webhook")
+async def webhook(request: Request):
+    update = await request.json()
+    await dp.feed_webhook_update(bot, update)
+    return {"status": "ok"}
+
+@app.on_event("startup")
+async def on_startup():
+    await bot.set_webhook(WEBHOOK_URL)
+
+@app.on_event("shutdown")
+async def on_shutdown():
     await bot.delete_webhook()
-    await bot.session.close()
 
-# -----------------------
-# AIOHTTP APP
-# -----------------------
-def create_app():
-    app = web.Application()
-    SimpleRequestHandler(dispatcher=dp, bot=bot).register(app, path=WEBHOOK_PATH)
-    app.on_startup.append(on_startup)
-    app.on_shutdown.append(on_shutdown)
-    return app
-
-# -----------------------
-# Запуск
-# -----------------------
 if __name__ == "__main__":
-    web.run_app(create_app(), host="0.0.0.0", port=int(os.getenv("PORT", 8080)))
+    uvicorn.run("app:app", host="0.0.0.0", port=int(os.getenv("PORT", 8080)))
