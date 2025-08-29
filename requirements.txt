@@ -1,33 +1,23 @@
-# Telegram bot framework
+# Telegram bot
 aiogram>=3.0,<4.0
 
-# HTTP server for webhook
+# HTTP
 aiohttp>=3.8.0
-
-# Load environment variables from .env
-python-dotenv>=1.0.0
-
-# Database support
-asyncpg>=0.27.0           # якщо PostgreSQL
-aiosqlite>=0.19.0         # якщо SQLite
-
-# ORM для зручної роботи з БД (опційно, якщо використовуєш SQLAlchemy)
-SQLAlchemy>=2.0.20
-databases>=0.7.0
-
-# Для роботи з API, json та іншими HTTP запитами
 httpx>=0.24.0
 requests>=2.31.0
 
-# Для обробки дат, часу та часових зон
-python-dateutil>=2.9.2
+# Env
+python-dotenv>=1.0.0
+
+# Database
+asyncpg>=0.27.0
+aiosqlite>=0.19.0
+SQLAlchemy>=2.0.20
+databases>=0.7.0
+
+# Utilities
+python-dateutil==2.9.1
 pytz>=2025.8
-
-# Робота з картинками, генерацією зображень (якщо є функціонал)
 Pillow>=10.0.0
-
-# Для криптографії (якщо є платежі або webhook-підписи)
 cryptography>=41.0.0
-
-# Для логування та відправки статистики
 aiologger>=1.0.0
