@@ -3,12 +3,12 @@ services:
     name: shop-bot
     env: python
     plan: free
-    buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn app:app --host 0.0.0.0 --port 10000
+    buildCommand: "pip install --no-cache-dir -r requirements.txt"
+    startCommand: "uvicorn app:app --host 0.0.0.0 --port 10000"
     envVars:
       - key: BOT_TOKEN
         fromDatabase: false
-        value: "YOUR_BOT_TOKEN"
+        value: "твій_токен_бота"
       - key: DATABASE_URL
         fromDatabase: false
         value: "postgresql+asyncpg://USER:PASSWORD@HOST:PORT/DBNAME"
