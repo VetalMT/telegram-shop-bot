@@ -1,114 +1,117 @@
 import os
 import logging
 from aiohttp import web
-from aiogram import Bot, Dispatcher, types
-from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import State, StatesGroup
+from aiogram import Bot, Dispatcher, F
+from aiogram.client.default import DefaultBotProperties
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 
-# ================== CONFIG ==================
-API_TOKEN = os.getenv("API_TOKEN")
-if not API_TOKEN:
-    raise ValueError("❌ API_TOKEN не заданий у змінних середовища!")
-
-WEBHOOK_PATH = f"/webhook/{API_TOKEN}"
-WEBHOOK_URL = f"https://{os.getenv('RENDER_EXTERNAL_HOSTNAME')}{WEBHOOK_PATH}"
-
+# -------------------
+# 🔹 Логування
+# -------------------
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# ================== BOT ==================
-bot = Bot(token=API_TOKEN)
-dp = Dispatcher(storage=MemoryStorage())
+# -------------------
+# 🔹 Налаштування
+# -------------------
+API_TOKEN = os.getenv("API_TOKEN")
 
-# ================== STATES ==================
-class OrderStates(StatesGroup):
-    choosing_category = State()
-    choosing_product = State()
-    confirming = State()
+if not API_TOKEN:
+    logger.warning("⚠️ API_TOKEN не знайдено у змінних середовища! Перевір Render Dashboard → Environment Variables")
 
-# ================== HANDLERS ==================
-@dp.message(commands=["start"])
-async def start_handler(message: types.Message, state: FSMContext):
-    await state.clear()
-    keyboard = types.ReplyKeyboardMarkup(
-        keyboard=[[types.KeyboardButton(text="🛒 Товари")]],
-        resize_keyboard=True
+WEBHOOK_HOST = "https://shop-x54i.onrender.com"   # 🔹 заміни на свій Render URL
+WEBHOOK_PATH = f"/webhook/{API_TOKEN}"
+WEBHOOK_URL = f"{WEBHOOK_HOST}{WEBHOOK_PATH}"
+
+bot = Bot(token=API_TOKEN, default=DefaultBotProperties(parse_mode="HTML"))
+dp = Dispatcher()
+
+# -------------------
+# 🔹 Категорії товарів
+# -------------------
+CATEGORIES = {
+    "electronics": {
+        "title": "📱 Електроніка",
+        "items": ["Телефон", "Ноутбук", "Навушники"]
+    },
+    "clothes": {
+        "title": "👕 Одяг",
+        "items": ["Футболка", "Куртка", "Кросівки"]
+    },
+    "food": {
+        "title": "🍔 Їжа",
+        "items": ["Бургер", "Піца", "Хот-дог"]
+    }
+}
+
+# -------------------
+# 🔹 Команди
+# -------------------
+@dp.message(F.text == "/start")
+async def start_cmd(message: Message):
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=cat["title"], callback_data=f"cat:{key}")]
+        for key, cat in CATEGORIES.items()
+    ])
+    await message.answer("👋 Вітаю у магазині!\nОберіть категорію:", reply_markup=kb)
+
+# -------------------
+# 🔹 Обробка категорій
+# -------------------
+@dp.callback_query(F.data.startswith("cat:"))
+async def category_handler(callback: CallbackQuery):
+    cat_key = callback.data.split(":")[1]
+    category = CATEGORIES.get(cat_key)
+
+    if not category:
+        await callback.answer("❌ Категорія не знайдена", show_alert=True)
+        return
+
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=item, callback_data=f"item:{cat_key}:{item}")]
+            for item in category["items"]
+        ]
     )
-    await message.answer("Привіт! 👋 Обери дію:", reply_markup=keyboard)
-    await state.set_state(OrderStates.choosing_category)
+    await callback.message.edit_text(f"📦 {category['title']}:\nОберіть товар:", reply_markup=kb)
 
-
-@dp.message(lambda m: m.text == "🛒 Товари")
-async def show_products(message: types.Message, state: FSMContext):
-    keyboard = types.ReplyKeyboardMarkup(
-        keyboard=[
-            [types.KeyboardButton(text="🍏 Яблука"), types.KeyboardButton(text="🍌 Банани")],
-            [types.KeyboardButton(text="⬅️ Назад")]
-        ],
-        resize_keyboard=True
+# -------------------
+# 🔹 Обробка товарів
+# -------------------
+@dp.callback_query(F.data.startswith("item:"))
+async def item_handler(callback: CallbackQuery):
+    _, cat_key, item = callback.data.split(":")
+    await callback.message.edit_text(
+        f"✅ Ви обрали: <b>{item}</b>\n\n"
+        f"Категорія: {CATEGORIES[cat_key]['title']}\n"
+        f"💰 Ціна: 100₴ (тестова)"
     )
-    await message.answer("Ось доступні товари:", reply_markup=keyboard)
-    await state.set_state(OrderStates.choosing_product)
 
-
-@dp.message(lambda m: m.text in ["🍏 Яблука", "🍌 Банани"])
-async def choose_product(message: types.Message, state: FSMContext):
-    await state.update_data(product=message.text)
-    keyboard = types.ReplyKeyboardMarkup(
-        keyboard=[
-            [types.KeyboardButton(text="✅ Підтвердити"), types.KeyboardButton(text="❌ Скасувати")]
-        ],
-        resize_keyboard=True
-    )
-    await message.answer(f"Ти вибрав {message.text}. Підтверджуєш покупку?", reply_markup=keyboard)
-    await state.set_state(OrderStates.confirming)
-
-
-@dp.message(lambda m: m.text == "✅ Підтвердити")
-async def confirm_order(message: types.Message, state: FSMContext):
-    data = await state.get_data()
-    await message.answer(f"✅ Замовлення підтверджено: {data.get('product')}", reply_markup=types.ReplyKeyboardRemove())
-    await state.clear()
-
-
-@dp.message(lambda m: m.text in ["❌ Скасувати", "⬅️ Назад"])
-async def cancel(message: types.Message, state: FSMContext):
-    await state.clear()
-    keyboard = types.ReplyKeyboardMarkup(
-        keyboard=[[types.KeyboardButton(text="🛒 Товари")]],
-        resize_keyboard=True
-    )
-    await message.answer("❌ Дію скасовано. Обери нову:", reply_markup=keyboard)
-    await state.set_state(OrderStates.choosing_category)
-
-# ================== AIOHTTP APP ==================
+# -------------------
+# 🔹 Webhook сервер
+# -------------------
 async def on_startup(app: web.Application):
+    if not API_TOKEN:
+        raise RuntimeError("❌ API_TOKEN не завантажено. Додай у Render → Environment Variables!")
+
+    # Скидаємо старий вебхук
+    await bot.delete_webhook()
+    # Ставимо новий
     await bot.set_webhook(WEBHOOK_URL)
-    logger.info(f"✅ Webhook set to {WEBHOOK_URL}")
+    logger.info(f"✅ Webhook встановлено: {WEBHOOK_URL}")
 
 async def on_shutdown(app: web.Application):
-    await bot.delete_webhook()
     await bot.session.close()
 
-async def handle_webhook(request: web.Request):
-    try:
-        data = await request.json()
-        update = types.Update(**data)
-        await dp.feed_update(bot, update)
-    except Exception as e:
-        logger.error(f"Webhook error: {e}")
-    return web.Response(text="ok")
+def setup_app():
+    app = web.Application()
+    app.router.add_post(WEBHOOK_PATH, dp.webhook_handler())
+    app.on_startup.append(on_startup)
+    app.on_shutdown.append(on_shutdown)
+    return app
 
-# 🔹 Кореневий маршрут для пінгів (keep alive)
-async def handle_root(request: web.Request):
-    return web.json_response({"status": "ok"})
-
-app = web.Application()
-app.router.add_post(WEBHOOK_PATH, handle_webhook)
-app.router.add_get("/", handle_root)  # <-- тут ключове
-app.on_startup.append(on_startup)
-app.on_shutdown.append(on_shutdown)
-
+# -------------------
+# 🔹 Запуск
+# -------------------
 if __name__ == "__main__":
-    web.run_app(app, host="0.0.0.0", port=int(os.getenv("PORT", 8080)))
+    web.run_app(setup_app(), host="0.0.0.0", port=int(os.getenv("PORT", 8080)))
