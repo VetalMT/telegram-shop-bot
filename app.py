@@ -1,35 +1,34 @@
-import logging
 from fastapi import FastAPI, Request
-from aiogram import Bot, Dispatcher, types
+from aiogram import Bot, Dispatcher
+from aiogram.types import Update
 from config import BOT_TOKEN
-from handlers_user import start_handler, catalog_handler, cart_handler
-from handlers_admin import admin_start_handler
-from db import engine, Base
+from db import create_pool
+from handlers_user import user_router
+from handlers_admin import admin_router
+from handlers_shop import shop_router
 
-logging.basicConfig(level=logging.INFO)
-bot = Bot(BOT_TOKEN)
-dp = Dispatcher()
+import asyncio
+
+bot = Bot(token=BOT_TOKEN)
+dp = Dispatcher(bot)
+
+dp.include_router(user_router)
+dp.include_router(admin_router)
+dp.include_router(shop_router)
 
 app = FastAPI()
 
-# --- Реєстрація хендлерів ---
-dp.message.register(start_handler, Command(commands=["start"]))
-dp.message.register(catalog_handler, lambda m: m.text=="Каталог")
-dp.message.register(cart_handler, lambda m: m.text=="Кошик")
-dp.message.register(admin_start_handler, lambda m: m.text in ["Додати товар","Видалити товар","Переглянути товари"])
+@app.on_event("startup")
+async def startup():
+    await create_pool()
 
-# --- Webhook ---
 @app.post("/webhook/{token}")
-async def telegram_webhook(token: str, request: Request):
-    if token != BOT_TOKEN:
-        return {"error":"invalid token"}
-    update = types.Update(**await request.json())
-    await dp.feed_update(bot=bot, update=update)
+async def telegram_webhook(request: Request, token: str):
+    data = await request.json()
+    update = Update(**data)
+    await dp.feed_update(bot, update)  # тут v3 вимагає передавати bot
     return {"ok": True}
 
-# --- Ініціалізація бази ---
-@app.on_event("startup")
-async def on_startup():
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    logging.info("База даних готова.")
+@app.get("/")
+async def root():
+    return {"message": "Бот запущений!"}
