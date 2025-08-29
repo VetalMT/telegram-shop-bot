@@ -1,23 +1,19 @@
-# Telegram bot
+# Telegram бот
 aiogram>=3.0,<4.0
 
-# HTTP
+# HTTP-клієнти
 aiohttp>=3.8.0
 httpx>=0.24.0
 requests>=2.31.0
 
-# Env
+# Робота з .env
 python-dotenv>=1.0.0
 
-# Database
-asyncpg>=0.27.0
-aiosqlite>=0.19.0
+# База даних
+asyncpg>=0.30.0
+aiosqlite>=0.21.0
 SQLAlchemy>=2.0.20
-databases>=0.7.0
+databases>=0.9.0
 
-# Utilities
-python-dateutil==2.9.1
-pytz>=2025.8
-Pillow>=10.0.0
-cryptography>=41.0.0
-aiologger>=1.0.0
+# Дата і час
+python-dateutil>=2.9.0,<3.0
