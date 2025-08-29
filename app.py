@@ -1,117 +1,124 @@
 import os
 import logging
+import sqlite3
 from aiohttp import web
 from aiogram import Bot, Dispatcher, F
+from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton
 from aiogram.client.default import DefaultBotProperties
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 
-# -------------------
-# 🔹 Логування
-# -------------------
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
-# -------------------
-# 🔹 Налаштування
-# -------------------
-API_TOKEN = os.getenv("API_TOKEN")
+# ==============================
+# 🔑 ТУТ БУДЕ ТВІЙ ТОКЕН
+# ==============================
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+if not BOT_TOKEN:
+    raise ValueError("❌ BOT_TOKEN не знайдений у змінних середовища!")
 
-if not API_TOKEN:
-    logger.warning("⚠️ API_TOKEN не знайдено у змінних середовища! Перевір Render Dashboard → Environment Variables")
+# ==============================
+# 🌐 Webhook
+# ==============================
+WEBHOOK_PATH = "/webhook"
+WEBHOOK_URL = f"https://{os.getenv('RENDER_EXTERNAL_HOSTNAME')}{WEBHOOK_PATH}"
 
-WEBHOOK_HOST = "https://shop-x54i.onrender.com"   # 🔹 заміни на свій Render URL
-WEBHOOK_PATH = f"/webhook/{API_TOKEN}"
-WEBHOOK_URL = f"{WEBHOOK_HOST}{WEBHOOK_PATH}"
-
-bot = Bot(token=API_TOKEN, default=DefaultBotProperties(parse_mode="HTML"))
+bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode="HTML"))
 dp = Dispatcher()
 
-# -------------------
-# 🔹 Категорії товарів
-# -------------------
-CATEGORIES = {
-    "electronics": {
-        "title": "📱 Електроніка",
-        "items": ["Телефон", "Ноутбук", "Навушники"]
-    },
-    "clothes": {
-        "title": "👕 Одяг",
-        "items": ["Футболка", "Куртка", "Кросівки"]
-    },
-    "food": {
-        "title": "🍔 Їжа",
-        "items": ["Бургер", "Піца", "Хот-дог"]
-    }
-}
+# ==============================
+# 🗄️ БАЗА (магазин)
+# ==============================
+def init_db():
+    conn = sqlite3.connect("shop.db")
+    cur = conn.cursor()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS categories (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS products (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            category_id INTEGER,
+            name TEXT NOT NULL,
+            price REAL NOT NULL,
+            FOREIGN KEY(category_id) REFERENCES categories(id)
+        )
+    """)
+    conn.commit()
+    conn.close()
 
-# -------------------
-# 🔹 Команди
-# -------------------
+def get_categories():
+    conn = sqlite3.connect("shop.db")
+    cur = conn.cursor()
+    cur.execute("SELECT id, name FROM categories")
+    rows = cur.fetchall()
+    conn.close()
+    return rows
+
+def get_products(category_id):
+    conn = sqlite3.connect("shop.db")
+    cur = conn.cursor()
+    cur.execute("SELECT name, price FROM products WHERE category_id=?", (category_id,))
+    rows = cur.fetchall()
+    conn.close()
+    return rows
+
+# ==============================
+# 🛒 ХЕНДЛЕРИ
+# ==============================
 @dp.message(F.text == "/start")
 async def start_cmd(message: Message):
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=cat["title"], callback_data=f"cat:{key}")]
-        for key, cat in CATEGORIES.items()
-    ])
-    await message.answer("👋 Вітаю у магазині!\nОберіть категорію:", reply_markup=kb)
+    kb = ReplyKeyboardMarkup(resize_keyboard=True)
+    kb.add(KeyboardButton("🛍 Категорії"))
+    await message.answer("Ласкаво просимо в магазин! Оберіть дію:", reply_markup=kb)
 
-# -------------------
-# 🔹 Обробка категорій
-# -------------------
-@dp.callback_query(F.data.startswith("cat:"))
-async def category_handler(callback: CallbackQuery):
-    cat_key = callback.data.split(":")[1]
-    category = CATEGORIES.get(cat_key)
-
-    if not category:
-        await callback.answer("❌ Категорія не знайдена", show_alert=True)
+@dp.message(F.text == "🛍 Категорії")
+async def show_categories(message: Message):
+    cats = get_categories()
+    if not cats:
+        await message.answer("Категорій немає ❌")
         return
+    kb = ReplyKeyboardMarkup(resize_keyboard=True)
+    for cid, name in cats:
+        kb.add(KeyboardButton(f"📦 {cid}:{name}"))
+    await message.answer("Оберіть категорію:", reply_markup=kb)
 
-    kb = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text=item, callback_data=f"item:{cat_key}:{item}")]
-            for item in category["items"]
-        ]
-    )
-    await callback.message.edit_text(f"📦 {category['title']}:\nОберіть товар:", reply_markup=kb)
+@dp.message(F.text.startswith("📦"))
+async def show_products(message: Message):
+    try:
+        cid = int(message.text.split(":")[0].replace("📦 ", ""))
+        products = get_products(cid)
+        if not products:
+            await message.answer("Товарів немає ❌")
+            return
+        text = "🛒 <b>Товари:</b>\n\n"
+        for name, price in products:
+            text += f"• {name} — {price:.2f} грн\n"
+        await message.answer(text)
+    except Exception as e:
+        await message.answer(f"Помилка: {e}")
 
-# -------------------
-# 🔹 Обробка товарів
-# -------------------
-@dp.callback_query(F.data.startswith("item:"))
-async def item_handler(callback: CallbackQuery):
-    _, cat_key, item = callback.data.split(":")
-    await callback.message.edit_text(
-        f"✅ Ви обрали: <b>{item}</b>\n\n"
-        f"Категорія: {CATEGORIES[cat_key]['title']}\n"
-        f"💰 Ціна: 100₴ (тестова)"
-    )
-
-# -------------------
-# 🔹 Webhook сервер
-# -------------------
+# ==============================
+# 🚀 AIOHTTP Web App
+# ==============================
 async def on_startup(app: web.Application):
-    if not API_TOKEN:
-        raise RuntimeError("❌ API_TOKEN не завантажено. Додай у Render → Environment Variables!")
-
-    # Скидаємо старий вебхук
-    await bot.delete_webhook()
-    # Ставимо новий
+    init_db()
     await bot.set_webhook(WEBHOOK_URL)
-    logger.info(f"✅ Webhook встановлено: {WEBHOOK_URL}")
+    logging.info(f"✅ Webhook set: {WEBHOOK_URL}")
 
 async def on_shutdown(app: web.Application):
-    await bot.session.close()
+    await bot.delete_webhook()
+    logging.info("🛑 Webhook deleted")
 
-def setup_app():
+def setup_app() -> web.Application:
     app = web.Application()
-    app.router.add_post(WEBHOOK_PATH, dp.webhook_handler())
     app.on_startup.append(on_startup)
     app.on_shutdown.append(on_shutdown)
+    dp.workflow_data["AIOHTTP_APP"] = app
+    app.router.add_post(WEBHOOK_PATH, dp._webhook_view(bot))  # для aiogram 3.7+
     return app
 
-# -------------------
-# 🔹 Запуск
-# -------------------
 if __name__ == "__main__":
-    web.run_app(setup_app(), host="0.0.0.0", port=int(os.getenv("PORT", 8080)))
+    port = int(os.getenv("PORT", 8080))
+    web.run_app(setup_app(), host="0.0.0.0", port=port)
