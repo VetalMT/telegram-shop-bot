@@ -1,11 +1,7 @@
 services:
   - type: web
-    name: telegram-shop-bot
+    name: telegram-bot
     env: python
-    buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT
-    envVars:
-      - key: BOT_TOKEN
-        value: "<тут_твій_токен_бота>"
-      - key: WEBHOOK_URL
-        value: "https://<твій-домен>.onrender.com/webhook"
+    plan: free
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "uvicorn app:app --host 0.0.0.0 --port $PORT"
