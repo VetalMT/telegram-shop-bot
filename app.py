@@ -8,18 +8,14 @@ from aiogram.fsm.state import State, StatesGroup
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from aiogram.types.webhook import Webhook
-from aiogram.dispatcher.webhook.aiohttp_server import SimpleRequestHandler
 import pdfkit  # для генерації PDF
 
-# ---------- Налаштування логів ----------
 logging.basicConfig(level=logging.INFO)
 
-# ---------- Конфіг ----------
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # https://your-app.onrender.com/webhook
 PORT = int(os.getenv("PORT", 10000))
 
-# ---------- Ініціалізація бота ----------
 bot = Bot(
     token=BOT_TOKEN,
     session=AiohttpSession(),
@@ -43,7 +39,7 @@ async def cmd_start(message: Message, state: FSMContext):
     ])
     await message.answer("Вітаю! Обери дію:", reply_markup=kb)
 
-# ---------- Кнопки ----------
+# ---------- Callback для покупки ----------
 @dp.callback_query(F.data == "buy")
 async def buy_callback(call: CallbackQuery, state: FSMContext):
     await call.message.answer("Введіть назву товару, який хочете замовити:")
@@ -81,8 +77,6 @@ async def enter_address(message: Message, state: FSMContext):
 async def confirm_order(call: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     pdf_filename = f"{data['name']}_order.pdf"
-
-    # ---------- Генерація PDF ----------
     html_content = f"""
     <h1>Замовлення</h1>
     <p><b>Товар:</b> {data['product']}</p>
@@ -90,7 +84,6 @@ async def confirm_order(call: CallbackQuery, state: FSMContext):
     <p><b>Адреса:</b> {data['address']}</p>
     """
     pdfkit.from_string(html_content, pdf_filename)
-
     await call.message.answer_document(open(pdf_filename, "rb"), caption="Ваш PDF-квиток")
     await call.message.answer("Дякуємо за замовлення!")
     await state.clear()
@@ -119,7 +112,6 @@ async def webhook_handler(request: Request):
     await dp.feed_update(update)
     return JSONResponse(content={"ok": True})
 
-# ---------- Основний запуск для локальної перевірки ----------
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=PORT)
