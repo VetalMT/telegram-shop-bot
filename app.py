@@ -1,10 +1,9 @@
 # app.py
-import os
 from fastapi import FastAPI, Request
 from aiogram import Bot, Dispatcher, types
 from aiogram.types import KeyboardButton, ReplyKeyboardMarkup
-from aiogram.utils.executor import start_webhook
 from dotenv import load_dotenv
+import os
 
 load_dotenv()
 
@@ -14,7 +13,8 @@ WEBHOOK_URL = f"https://{os.getenv('RENDER_EXTERNAL_HOSTNAME')}{WEBHOOK_PATH}"
 PORT = int(os.environ.get("PORT", 10000))
 
 bot = Bot(token=BOT_TOKEN)
-dp = Dispatcher(bot)
+dp = Dispatcher()
+
 app = FastAPI()
 
 
@@ -26,28 +26,21 @@ main_keyboard = ReplyKeyboardMarkup(
     resize_keyboard=True
 )
 
+
 # --- Handlers ---
-@dp.message_handler(commands=["start"])
-async def cmd_start(message: types.Message):
-    await message.answer(
-        "Вітаємо у нашому магазині! Оберіть дію:",
-        reply_markup=main_keyboard
-    )
+@dp.message()
+async def handle_messages(message: types.Message):
+    if message.text == "/start":
+        await message.answer("Вітаємо у нашому магазині! Оберіть дію:", reply_markup=main_keyboard)
+    elif message.text == "Каталог":
+        await message.answer("Ось каталог товарів:\n1. Товар A\n2. Товар B\n3. Товар C")
+    elif message.text == "Кошик":
+        await message.answer("Ваш кошик порожній.")
+    else:
+        await message.answer("Невідома команда.")
 
 
-@dp.message_handler(lambda m: m.text == "Каталог")
-async def show_catalog(message: types.Message):
-    # Тут можна вставити логіку каталогу
-    await message.answer("Ось каталог товарів:\n1. Товар A\n2. Товар B\n3. Товар C")
-
-
-@dp.message_handler(lambda m: m.text == "Кошик")
-async def show_cart(message: types.Message):
-    # Тут можна вставити логіку кошика
-    await message.answer("Ваш кошик порожній.")
-
-
-# --- FastAPI webhook endpoint ---
+# --- Webhook endpoint ---
 @app.post(WEBHOOK_PATH)
 async def telegram_webhook(request: Request):
     update = types.Update(**await request.json())
@@ -64,4 +57,4 @@ async def on_startup():
 @app.on_event("shutdown")
 async def on_shutdown():
     await bot.delete_webhook()
-    await bot.close()
+    await bot.session.close()
