@@ -1,36 +1,24 @@
-from aiogram import F
-from aiogram.types import Message
-from aiogram.filters import Command
-from keyboards import user_main_keyboard
-from db import get_session
-from database import Product, CartItem
-from sqlalchemy.future import select
+from aiogram import Router, F
+from aiogram.types import Message, CallbackQuery
+from keyboards import catalog_button
+from db import fetch
 
-async def start_handler(message: Message):
-    await message.answer("Бот готовий!", reply_markup=user_main_keyboard())
+user_router = Router()
 
-async def catalog_handler(message: Message):
-    async for session in get_session():
-        result = await session.execute(select(Product))
-        products = result.scalars().all()
-        if not products:
-            await message.answer("Каталог порожній.")
-            return
-        for p in products:
-            await message.bot.send_photo(
-                chat_id=message.chat.id,
-                photo=p.photo,
-                caption=f"{p.name}\n{p.description}\nЦіна: {p.price} грн"
-            )
+@user_router.message(F.text == "/start")
+async def start(message: Message):
+    await message.answer("Бот готовий!", reply_markup=catalog_button)
 
-async def cart_handler(message: Message):
-    async for session in get_session():
-        result = await session.execute(select(CartItem).where(CartItem.user_id == message.from_user.id))
-        items = result.scalars().all()
-        if not items:
-            await message.answer("Ваш кошик порожній.")
-            return
-        text = "Ваш кошик:\n"
-        for item in items:
-            text += f"{item.product.name} x{item.quantity} - {item.product.price} грн\n"
-        await message.answer(text)
+@user_router.callback_query(F.data == "show_catalog")
+async def show_catalog(callback: CallbackQuery):
+    products = await fetch("SELECT id, name, price FROM products")
+    if not products:
+        await callback.message.answer("Каталог порожній.")
+        return
+    msg = "\n".join([f"{p['id']}. {p['name']} - {p['price']} грн" for p in products])
+    await callback.message.answer(f"Каталог:\n{msg}")
+
+@user_router.callback_query(F.data == "show_cart")
+async def show_cart(callback: CallbackQuery):
+    # тут можна додати логику для кошика
+    await callback.message.answer("Ваш кошик поки що порожній.")
