@@ -1,38 +1,19 @@
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup
-from aiogram.utils.keyboard import InlineKeyboardBuilder
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 
-# Меню користувача
-shop_kb = ReplyKeyboardMarkup(
-    resize_keyboard=True,
-    keyboard=[
-        [KeyboardButton(text="🛍 Каталог")],
-        [KeyboardButton(text="🛒 Кошик")]
-    ]
-)
+def user_main_keyboard():
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="Каталог"), KeyboardButton(text="Кошик")]
+        ],
+        resize_keyboard=True
+    )
 
-# Меню адміністратора
-admin_kb = ReplyKeyboardMarkup(
-    resize_keyboard=True,
-    keyboard=[
-        [KeyboardButton(text="➕ Додати товар")],
-        [KeyboardButton(text="❌ Видалити товар")],
-        [KeyboardButton(text="📦 Переглянути товари")]
-    ]
-)
-
-def product_inline_kb(product_id: int) -> InlineKeyboardMarkup:
-    kb = InlineKeyboardBuilder()
-    kb.button(text="➕ Додати у кошик", callback_data=f"add:{product_id}")
-    kb.button(text="🛒 Відкрити кошик", callback_data="cart:open")
-    kb.adjust(1)
-    return kb.as_markup()
-
-def cart_inline_kb(items: list) -> InlineKeyboardMarkup:
-    kb = InlineKeyboardBuilder()
-    for it in items:
-        kb.button(text=f"❌ {it['name']} (–1)", callback_data=f"cart:remove:{it['product_id']}")
-    if items:
-        kb.button(text="🧹 Очистити все", callback_data="cart:clear")
-        kb.button(text="✅ Оформити замовлення", callback_data="order:start")
-    kb.adjust(1)
-    return kb.as_markup()
+def admin_main_keyboard():
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="Додати товар")],
+            [KeyboardButton(text="Видалити товар")],
+            [KeyboardButton(text="Переглянути товари")]
+        ],
+        resize_keyboard=True
+    )
