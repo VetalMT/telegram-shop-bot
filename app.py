@@ -1,56 +1,59 @@
+# app.py
 from fastapi import FastAPI, Request
-from aiogram import Bot, Dispatcher, types
-from aiogram.types import KeyboardButton, ReplyKeyboardMarkup
-from dotenv import load_dotenv
+from aiogram import Bot, Dispatcher
+from aiogram.types import Update
+import logging
 import os
 
-# --- Load env ---
-load_dotenv()
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-WEBHOOK_PATH = f"/webhook/{BOT_TOKEN}"
-WEBHOOK_URL = f"https://{os.getenv('RENDER_EXTERNAL_HOSTNAME')}{WEBHOOK_PATH}"
-PORT = int(os.environ.get("PORT", 10000))
+# ---------------------
+# Налаштування
+# ---------------------
+API_TOKEN = os.getenv("BOT_TOKEN")  # Твій токен
+WEBHOOK_PATH = f"/webhook/{API_TOKEN}"
+WEBAPP_HOST = "0.0.0.0"
+WEBAPP_PORT = int(os.getenv("PORT", 10000))
 
-# --- Bot and dispatcher ---
-bot = Bot(token=BOT_TOKEN)
+logging.basicConfig(level=logging.INFO)
+
+bot = Bot(token=API_TOKEN)
 dp = Dispatcher()
 
-# --- FastAPI app ---
 app = FastAPI()
 
-# --- Keyboards ---
-main_keyboard = ReplyKeyboardMarkup(
-    keyboard=[
-        [KeyboardButton(text="Каталог"), KeyboardButton(text="Кошик")]
-    ],
-    resize_keyboard=True
-)
+# ---------------------
+# Основні хендлери
+# ---------------------
 
-# --- Handlers ---
 @dp.message()
-async def handle_messages(message: types.Message):
-    if message.text == "/start":
-        await message.answer("Вітаємо у нашому магазині! Оберіть дію:", reply_markup=main_keyboard)
-    elif message.text == "Каталог":
-        await message.answer("Ось каталог товарів:\n1. Товар A\n2. Товар B\n3. Товар C")
-    elif message.text == "Кошик":
-        await message.answer("Ваш кошик порожній.")
-    else:
-        await message.answer("Невідома команда.")
+async def echo_handler(message):
+    # Тут простий приклад: бот повторює повідомлення користувача
+    await message.answer(f"Ти написав: {message.text}")
 
-# --- Webhook endpoint ---
+# ---------------------
+# Webhook endpoint
+# ---------------------
 @app.post(WEBHOOK_PATH)
 async def telegram_webhook(request: Request):
-    update = types.Update(**await request.json())
-    await dp.process_update(update)
-    return {"ok": True}
+    try:
+        data = await request.json()
+        update = Update(**data)
+        # aiogram v3: feed_update відправляє оновлення до диспетчера
+        await dp.feed_update(update)
+        return {"status": "ok"}
+    except Exception as e:
+        logging.exception("Помилка webhook:")
+        return {"status": "error", "detail": str(e)}
 
-# --- Startup / Shutdown ---
-@app.on_event("startup")
-async def on_startup():
-    await bot.set_webhook(WEBHOOK_URL)
+# ---------------------
+# Root для перевірки сервісу
+# ---------------------
+@app.get("/")
+async def root():
+    return {"status": "Bot is running"}
 
+# ---------------------
+# Shutdown cleanup
+# ---------------------
 @app.on_event("shutdown")
-async def on_shutdown():
-    await bot.delete_webhook()
+async def shutdown():
     await bot.session.close()
