@@ -1,57 +1,35 @@
+import logging
 from fastapi import FastAPI, Request
 from aiogram import Bot, Dispatcher, types
-from aiogram.filters import Command
-from aiogram.types import Message, InlineKeyboardButton, InlineKeyboardMarkup
-import logging
-import os
+from config import BOT_TOKEN
+from handlers_user import start_handler, catalog_handler, cart_handler
+from handlers_admin import admin_start_handler
+from db import engine, Base
 
-# --- Логування ---
 logging.basicConfig(level=logging.INFO)
-
-# --- Дані бота ---
-TOKEN = os.getenv("BOT_TOKEN")  # або встав прямо токен
-WEBHOOK_PATH = f"/webhook/{TOKEN}"
-WEBHOOK_URL = f"https://shop-x54i.onrender.com{WEBHOOK_PATH}"
-
-bot = Bot(token=TOKEN)
+bot = Bot(BOT_TOKEN)
 dp = Dispatcher()
 
 app = FastAPI()
 
-# --- Кнопки ---
-def main_menu_keyboard():
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🎫 Створити наступний квиток", callback_data="next_ticket")],
-    ])
-    return keyboard
+# --- Реєстрація хендлерів ---
+dp.message.register(start_handler, Command(commands=["start"]))
+dp.message.register(catalog_handler, lambda m: m.text=="Каталог")
+dp.message.register(cart_handler, lambda m: m.text=="Кошик")
+dp.message.register(admin_start_handler, lambda m: m.text in ["Додати товар","Видалити товар","Переглянути товари"])
 
-# --- /start ---
-@dp.message(Command(commands=["start"]))
-async def start_handler(message: Message):
-    await message.answer("Привіт! Бот готовий 🚀", reply_markup=main_menu_keyboard())
-
-# --- Обробка кнопки ---
-@dp.callback_query(lambda c: c.data == "next_ticket")
-async def next_ticket_handler(callback_query: types.CallbackQuery):
-    await callback_query.message.answer("Створюю наступний квиток...")
-    # --- Тут вставляй свій код генерації PDF ---
-    await callback_query.answer()  # закриваємо "loading" на кнопці
-
-# --- Webhook endpoint ---
-@app.post(WEBHOOK_PATH)
-async def telegram_webhook(request: Request):
-    data = await request.json()
-    update = types.Update(**data)
-    await dp.feed_update(bot, update)  # Передаємо bot і update
+# --- Webhook ---
+@app.post("/webhook/{token}")
+async def telegram_webhook(token: str, request: Request):
+    if token != BOT_TOKEN:
+        return {"error":"invalid token"}
+    update = types.Update(**await request.json())
+    await dp.feed_update(bot=bot, update=update)
     return {"ok": True}
 
-# --- FastAPI старт ---
+# --- Ініціалізація бази ---
 @app.on_event("startup")
 async def on_startup():
-    # Встановлюємо webhook на Telegram
-    await bot.set_webhook(WEBHOOK_URL)
-    logging.info(f"Webhook set to {WEBHOOK_URL}")
-
-@app.on_event("shutdown")
-async def on_shutdown():
-    await bot.session.close()
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    logging.info("База даних готова.")
