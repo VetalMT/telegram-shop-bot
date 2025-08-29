@@ -1,110 +1,125 @@
 import os
 import logging
-from aiogram import Bot, Dispatcher, types
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
-from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram import Bot, Dispatcher, F
+from aiogram.client.session.aiohttp import AiohttpSession
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, DefaultBotProperties
 from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
-import asyncpg
-from contextlib import asynccontextmanager
+from aiogram.types.webhook import Webhook
+from aiogram.dispatcher.webhook.aiohttp_server import SimpleRequestHandler
+import pdfkit  # для генерації PDF
 
+# ---------- Налаштування логів ----------
 logging.basicConfig(level=logging.INFO)
 
+# ---------- Конфіг ----------
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # Наприклад: https://shop-x54i.onrender.com
-DATABASE_URL = os.getenv("DATABASE_URL")  # PostgreSQL connection string
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # https://your-app.onrender.com/webhook
+PORT = int(os.getenv("PORT", 10000))
 
-bot = Bot(token=BOT_TOKEN, parse_mode="HTML")
-storage = MemoryStorage()
-dp = Dispatcher(storage=storage)
-db_pool = None
-
-# --- FSM стани ---
-from aiogram.fsm.state import StatesGroup, State
-
-class Form(StatesGroup):
-    waiting_for_name = State()
-    waiting_for_address = State()
-    waiting_for_confirmation = State()
-
-# --- FastAPI lifespan ---
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    global db_pool
-    # Startup
-    db_pool = await asyncpg.create_pool(DATABASE_URL)
-    await bot.set_webhook(f"{WEBHOOK_URL}/webhook/{BOT_TOKEN}")
-    yield
-    # Shutdown
-    await bot.delete_webhook()
-    if db_pool:
-        await db_pool.close()
-
-app = FastAPI(lifespan=lifespan)
-
-# --- Telegram keyboard ---
-main_keyboard = ReplyKeyboardMarkup(
-    keyboard=[
-        [KeyboardButton(text="🎫 Створити квиток")],
-        [KeyboardButton(text="ℹ Інформація")]
-    ],
-    resize_keyboard=True
+# ---------- Ініціалізація бота ----------
+bot = Bot(
+    token=BOT_TOKEN,
+    session=AiohttpSession(),
+    default=DefaultBotProperties(parse_mode="HTML")
 )
+dp = Dispatcher()
 
-# --- Telegram handlers ---
-@dp.message(commands=["start"])
-async def cmd_start(message: types.Message, state: FSMContext):
-    await message.answer("Привіт! Я бот для створення PDF-квитків.", reply_markup=main_keyboard)
+# ---------- FSM ----------
+class OrderStates(StatesGroup):
+    choosing_product = State()
+    entering_name = State()
+    entering_address = State()
+    confirm_order = State()
 
-@dp.message(lambda message: message.text == "🎫 Створити квиток")
-async def create_ticket(message: types.Message, state: FSMContext):
-    await message.answer("Введіть ім'я пасажира:")
-    await state.set_state(Form.waiting_for_name)
+# ---------- Старт команди ----------
+@dp.message(F.text == "/start")
+async def cmd_start(message: Message, state: FSMContext):
+    await state.clear()
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🛒 Купити товар", callback_data="buy")]
+    ])
+    await message.answer("Вітаю! Обери дію:", reply_markup=kb)
 
-@dp.message(Form.waiting_for_name)
-async def process_name(message: types.Message, state: FSMContext):
+# ---------- Кнопки ----------
+@dp.callback_query(F.data == "buy")
+async def buy_callback(call: CallbackQuery, state: FSMContext):
+    await call.message.answer("Введіть назву товару, який хочете замовити:")
+    await state.set_state(OrderStates.choosing_product)
+
+@dp.message(OrderStates.choosing_product)
+async def choose_product(message: Message, state: FSMContext):
+    await state.update_data(product=message.text)
+    await message.answer("Введіть своє ім'я:")
+    await state.set_state(OrderStates.entering_name)
+
+@dp.message(OrderStates.entering_name)
+async def enter_name(message: Message, state: FSMContext):
     await state.update_data(name=message.text)
-    await message.answer("Введіть адресу:")
-    await state.set_state(Form.waiting_for_address)
+    await message.answer("Введіть адресу доставки:")
+    await state.set_state(OrderStates.entering_address)
 
-@dp.message(Form.waiting_for_address)
-async def process_address(message: types.Message, state: FSMContext):
+@dp.message(OrderStates.entering_address)
+async def enter_address(message: Message, state: FSMContext):
     await state.update_data(address=message.text)
     data = await state.get_data()
-    await message.answer(f"Підтвердіть дані:\nІм'я: {data['name']}\nАдреса: {data['address']}",
-                         reply_markup=ReplyKeyboardMarkup(
-                             keyboard=[[KeyboardButton("✅ Підтвердити")]],
-                             resize_keyboard=True
-                         ))
-    await state.set_state(Form.waiting_for_confirmation)
+    await message.answer(
+        f"Підтвердіть замовлення:\n\n"
+        f"Товар: {data['product']}\n"
+        f"Ім'я: {data['name']}\n"
+        f"Адреса: {data['address']}",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton("✅ Підтвердити", callback_data="confirm")],
+            [InlineKeyboardButton("❌ Відмінити", callback_data="cancel")]
+        ])
+    )
+    await state.set_state(OrderStates.confirm_order)
 
-@dp.message(Form.waiting_for_confirmation)
-async def process_confirmation(message: types.Message, state: FSMContext):
-    if message.text == "✅ Підтвердити":
-        data = await state.get_data()
-        # Тут вставити генерацію PDF та збереження у базу
-        await message.answer(f"Квиток створено для {data['name']}!", reply_markup=main_keyboard)
+@dp.callback_query(F.data == "confirm", state=OrderStates.confirm_order)
+async def confirm_order(call: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    pdf_filename = f"{data['name']}_order.pdf"
+
+    # ---------- Генерація PDF ----------
+    html_content = f"""
+    <h1>Замовлення</h1>
+    <p><b>Товар:</b> {data['product']}</p>
+    <p><b>Ім'я:</b> {data['name']}</p>
+    <p><b>Адреса:</b> {data['address']}</p>
+    """
+    pdfkit.from_string(html_content, pdf_filename)
+
+    await call.message.answer_document(open(pdf_filename, "rb"), caption="Ваш PDF-квиток")
+    await call.message.answer("Дякуємо за замовлення!")
     await state.clear()
 
-@dp.message(lambda message: message.text == "ℹ Інформація")
-async def info(message: types.Message):
-    await message.answer("Це тестовий бот для створення PDF-квитків через Telegram.")
+@dp.callback_query(F.data == "cancel", state=OrderStates.confirm_order)
+async def cancel_order(call: CallbackQuery, state: FSMContext):
+    await call.message.answer("Замовлення скасовано.")
+    await state.clear()
 
-# --- Webhook endpoint для Render ---
-@app.post(f"/webhook/{BOT_TOKEN}")
-async def telegram_webhook(request: Request):
+# ---------- FastAPI для Webhook ----------
+app = FastAPI()
+
+@app.on_event("startup")
+async def on_startup():
+    await bot.set_webhook(WEBHOOK_URL)
+
+@app.on_event("shutdown")
+async def on_shutdown():
+    await bot.delete_webhook()
+    await bot.session.close()
+
+@app.post("/webhook")
+async def webhook_handler(request: Request):
     data = await request.json()
-    update = types.Update(**data)
+    update = Webhook(**data)
     await dp.feed_update(update)
     return JSONResponse(content={"ok": True})
 
-# --- FastAPI корінь (можна для перевірки) ---
-@app.get("/")
-async def root():
-    return {"status": "bot is running"}
-
-# --- Запуск uvicorn тільки локально ---
+# ---------- Основний запуск для локальної перевірки ----------
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", 8000)))
+    uvicorn.run(app, host="0.0.0.0", port=PORT)
