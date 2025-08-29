@@ -1,19 +1,12 @@
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
-def user_main_keyboard():
-    return ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text="Каталог"), KeyboardButton(text="Кошик")]
-        ],
-        resize_keyboard=True
-    )
+# Кнопки покупця
+catalog_button = InlineKeyboardMarkup(row_width=1)
+catalog_button.add(InlineKeyboardButton(text="Каталог", callback_data="show_catalog"))
+catalog_button.add(InlineKeyboardButton(text="Кошик", callback_data="show_cart"))
 
-def admin_main_keyboard():
-    return ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text="Додати товар")],
-            [KeyboardButton(text="Видалити товар")],
-            [KeyboardButton(text="Переглянути товари")]
-        ],
-        resize_keyboard=True
-    )
+# Кнопки адміна
+admin_keyboard = InlineKeyboardMarkup(row_width=1)
+admin_keyboard.add(InlineKeyboardButton(text="Додати товар", callback_data="add_product"))
+admin_keyboard.add(InlineKeyboardButton(text="Видалити товар", callback_data="delete_product"))
+admin_keyboard.add(InlineKeyboardButton(text="Переглянути товари", callback_data="list_products"))
