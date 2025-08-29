@@ -1,3 +1,4 @@
-from handlers_user import start_handler, catalog_handler, cart_handler
+# Можна залишити пустим або додати логіку для покупки, якщо потрібно
+from aiogram import Router
 
-# Тут можна об'єднати всі хендлери покупця, підключати до Dispatcher
+shop_router = Router()
