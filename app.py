@@ -38,7 +38,7 @@ async def telegram_webhook(request: Request):
         data = await request.json()
         update = Update(**data)
         # aiogram v3: feed_update відправляє оновлення до диспетчера
-        await dp.feed_update(update)
+        await dp.feed_update(update=update)
         return {"status": "ok"}
     except Exception as e:
         logging.exception("Помилка webhook:")
