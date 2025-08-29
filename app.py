@@ -1,59 +1,45 @@
 # app.py
 from fastapi import FastAPI, Request
-from aiogram import Bot, Dispatcher
-from aiogram.types import Update
+from aiogram import Bot, Dispatcher, types
 import logging
 import os
 
-# ---------------------
-# Налаштування
-# ---------------------
-API_TOKEN = os.getenv("BOT_TOKEN")  # Твій токен
-WEBHOOK_PATH = f"/webhook/{API_TOKEN}"
-WEBAPP_HOST = "0.0.0.0"
-WEBAPP_PORT = int(os.getenv("PORT", 10000))
-
+# Логування
 logging.basicConfig(level=logging.INFO)
 
-bot = Bot(token=API_TOKEN)
+# Токен бота
+BOT_TOKEN = os.getenv("BOT_TOKEN")  # або встав свій токен прямо
+
+# Ініціалізація бота та диспетчера
+bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
+# Ініціалізація FastAPI
 app = FastAPI()
 
-# ---------------------
-# Основні хендлери
-# ---------------------
+# --- Приклад хендлерів ---
+@dp.message(commands=["start"])
+async def start_handler(message: types.Message):
+    await message.answer("Привіт! Бот запущений через webhook 🚀")
 
-@dp.message()
-async def echo_handler(message):
-    # Тут простий приклад: бот повторює повідомлення користувача
-    await message.answer(f"Ти написав: {message.text}")
+# --- Webhook endpoint ---
+@app.post("/webhook/{token}")
+async def telegram_webhook(token: str, request: Request):
+    if token != BOT_TOKEN:
+        return {"status": "unauthorized"}
 
-# ---------------------
-# Webhook endpoint
-# ---------------------
-@app.post(WEBHOOK_PATH)
-async def telegram_webhook(request: Request):
+    update_data = await request.json()
+    update = types.Update(**update_data)  # конвертуємо dict у Update
+
     try:
-        data = await request.json()
-        update = Update(**data)
-        # aiogram v3: feed_update відправляє оновлення до диспетчера
-        await dp.feed_update(update=update)
-        return {"status": "ok"}
+        # feed_update тепер потребує bot і update
+        await dp.feed_update(bot=bot, update=update)
     except Exception as e:
-        logging.exception("Помилка webhook:")
-        return {"status": "error", "detail": str(e)}
+        logging.error(f"Помилка webhook: {e}")
 
-# ---------------------
-# Root для перевірки сервісу
-# ---------------------
-@app.get("/")
-async def root():
-    return {"status": "Bot is running"}
+    return {"ok": True}
 
-# ---------------------
-# Shutdown cleanup
-# ---------------------
-@app.on_event("shutdown")
-async def shutdown():
-    await bot.session.close()
+# --- Запуск при локальному тестуванні ---
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=10000)
