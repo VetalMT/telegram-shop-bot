@@ -2,116 +2,95 @@ import asyncpg
 from config import DATABASE_URL
 
 
-class Database:
-    def __init__(self):
-        self.pool = None
+async def create_pool():
+    return await asyncpg.create_pool(DATABASE_URL)
 
-    async def connect(self):
-        if not self.pool:
-            self.pool = await asyncpg.create_pool(DATABASE_URL)
 
-    async def create_tables(self):
-        async with self.pool.acquire() as conn:
-            await conn.execute("""
-                CREATE TABLE IF NOT EXISTS users (
-                    id SERIAL PRIMARY KEY,
-                    tg_id BIGINT UNIQUE NOT NULL,
-                    name TEXT
-                );
-            """)
-            await conn.execute("""
-                CREATE TABLE IF NOT EXISTS categories (
-                    id SERIAL PRIMARY KEY,
-                    name TEXT NOT NULL
-                );
-            """)
-            await conn.execute("""
-                CREATE TABLE IF NOT EXISTS products (
-                    id SERIAL PRIMARY KEY,
-                    name TEXT NOT NULL,
-                    description TEXT,
-                    price NUMERIC(10, 2) NOT NULL,
-                    photo TEXT,
-                    category_id INTEGER REFERENCES categories(id) ON DELETE CASCADE
-                );
-            """)
-            await conn.execute("""
-                CREATE TABLE IF NOT EXISTS cart (
-                    id SERIAL PRIMARY KEY,
-                    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
-                    product_id INTEGER REFERENCES products(id) ON DELETE CASCADE
-                );
-            """)
+async def init_db(pool):
+    async with pool.acquire() as conn:
+        await conn.execute("""
+        CREATE TABLE IF NOT EXISTS products (
+            id SERIAL PRIMARY KEY,
+            name TEXT NOT NULL,
+            description TEXT,
+            price NUMERIC NOT NULL,
+            photo TEXT
+        );
+        """)
+        await conn.execute("""
+        CREATE TABLE IF NOT EXISTS carts (
+            id SERIAL PRIMARY KEY,
+            user_id BIGINT NOT NULL,
+            product_id INT REFERENCES products(id)
+        );
+        """)
+        await conn.execute("""
+        CREATE TABLE IF NOT EXISTS orders (
+            id SERIAL PRIMARY KEY,
+            user_id BIGINT NOT NULL,
+            name TEXT,
+            phone TEXT,
+            city TEXT,
+            address TEXT,
+            created_at TIMESTAMP DEFAULT now()
+        );
+        """)
+        await conn.execute("""
+        CREATE TABLE IF NOT EXISTS order_items (
+            id SERIAL PRIMARY KEY,
+            order_id INT REFERENCES orders(id),
+            product_id INT REFERENCES products(id)
+        );
+        """)
 
-    # ------------------- USERS -------------------
-    async def add_user(self, tg_id, name):
-        async with self.pool.acquire() as conn:
-            await conn.execute("""
-                INSERT INTO users (tg_id, name) 
-                VALUES ($1, $2)
-                ON CONFLICT (tg_id) DO NOTHING
-            """, tg_id, name)
 
-    async def get_user(self, tg_id):
-        async with self.pool.acquire() as conn:
-            return await conn.fetchrow("SELECT * FROM users WHERE tg_id = $1", tg_id)
+# ================== PRODUCTS ==================
+async def add_product(pool, name, description, price, photo):
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO products (name, description, price, photo) VALUES ($1, $2, $3, $4)",
+            name, description, price, photo
+        )
 
-    # ------------------- CATEGORIES -------------------
-    async def add_category(self, name):
-        async with self.pool.acquire() as conn:
-            await conn.execute("INSERT INTO categories (name) VALUES ($1)", name)
+async def get_products(pool):
+    async with pool.acquire() as conn:
+        return await conn.fetch("SELECT * FROM products ORDER BY id")
 
-    async def get_categories(self):
-        async with self.pool.acquire() as conn:
-            return await conn.fetch("SELECT * FROM categories")
+async def delete_product(pool, product_id):
+    async with pool.acquire() as conn:
+        await conn.execute("DELETE FROM products WHERE id=$1", product_id)
 
-    # ------------------- PRODUCTS -------------------
-    async def add_product(self, name, description, price, photo, category_id=None):
-        async with self.pool.acquire() as conn:
-            await conn.execute("""
-                INSERT INTO products (name, description, price, photo, category_id)
-                VALUES ($1, $2, $3, $4, $5)
-            """, name, description, price, photo, category_id)
+# ================== CART ==================
+async def add_to_cart(pool, user_id, product_id):
+    async with pool.acquire() as conn:
+        await conn.execute("INSERT INTO carts (user_id, product_id) VALUES ($1, $2)", user_id, product_id)
 
-    async def delete_product(self, product_id):
-        async with self.pool.acquire() as conn:
-            await conn.execute("DELETE FROM products WHERE id = $1", product_id)
+async def get_cart(pool, user_id):
+    async with pool.acquire() as conn:
+        return await conn.fetch("""
+            SELECT c.id, p.name, p.price
+            FROM carts c
+            JOIN products p ON c.product_id = p.id
+            WHERE c.user_id=$1
+        """, user_id)
 
-    async def get_products(self):
-        async with self.pool.acquire() as conn:
-            return await conn.fetch("SELECT * FROM products")
+async def remove_from_cart(pool, cart_id):
+    async with pool.acquire() as conn:
+        await conn.execute("DELETE FROM carts WHERE id=$1", cart_id)
 
-    async def get_product(self, product_id):
-        async with self.pool.acquire() as conn:
-            return await conn.fetchrow("SELECT * FROM products WHERE id = $1", product_id)
+async def clear_cart(pool, user_id):
+    async with pool.acquire() as conn:
+        await conn.execute("DELETE FROM carts WHERE user_id=$1", user_id)
 
-    # ------------------- CART -------------------
-    async def add_to_cart(self, tg_id, product_id):
-        async with self.pool.acquire() as conn:
-            user = await conn.fetchrow("SELECT * FROM users WHERE tg_id = $1", tg_id)
-            if not user:
-                return
-            await conn.execute("""
-                INSERT INTO cart (user_id, product_id)
-                VALUES ($1, $2)
-            """, user["id"], product_id)
+# ================== ORDERS ==================
+async def create_order(pool, user_id, name, phone, city, address):
+    async with pool.acquire() as conn:
+        order_id = await conn.fetchval("""
+            INSERT INTO orders (user_id, name, phone, city, address)
+            VALUES ($1, $2, $3, $4, $5) RETURNING id
+        """, user_id, name, phone, city, address)
+        return order_id
 
-    async def get_cart(self, tg_id):
-        async with self.pool.acquire() as conn:
-            return await conn.fetch("""
-                SELECT c.id, p.id as product_id, p.name, p.price, p.photo 
-                FROM cart c
-                JOIN users u ON c.user_id = u.id
-                JOIN products p ON c.product_id = p.id
-                WHERE u.tg_id = $1
-            """, tg_id)
-
-    async def remove_from_cart(self, cart_id):
-        async with self.pool.acquire() as conn:
-            await conn.execute("DELETE FROM cart WHERE id = $1", cart_id)
-
-    async def clear_cart(self, tg_id):
-        async with self.pool.acquire() as conn:
-            user = await conn.fetchrow("SELECT * FROM users WHERE tg_id = $1", tg_id)
-            if user:
-                await conn.execute("DELETE FROM cart WHERE user_id = $1", user["id"])
+async def add_order_item(pool, order_id, product_id):
+    async with pool.acquire() as conn:
+        await conn.execute("INSERT INTO order_items (order_id, product_id) VALUES ($1, $2)", order_id, product_id)
