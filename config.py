@@ -1,7 +1,9 @@
 import os
+from dotenv import load_dotenv
 
-BOT_TOKEN = os.getenv("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
-DATABASE_URL = os.getenv(
-    "DATABASE_URL",
-    "postgresql+asyncpg://USER:PASSWORD@HOST:PORT/DBNAME"
-)
+load_dotenv()
+
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+
+# URL бази даних PostgreSQL (наприклад, у Render або Heroku)
+DATABASE_URL = os.getenv("DATABASE_URL")
