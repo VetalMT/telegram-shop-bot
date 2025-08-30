@@ -1,55 +1,103 @@
-from aiogram import Router, F
-from aiogram.types import CallbackQuery, Message
-from keyboards import admin_keyboard
-from db import execute, fetch
+from aiogram import Router, types
+from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
+from config import ADMIN_ID
+import db
 
-admin_router = Router()
+router = Router()
 
-class AddProduct(StatesGroup):
+
+class AddProductFSM(StatesGroup):
     name = State()
     description = State()
     price = State()
     photo = State()
 
-class DeleteProduct(StatesGroup):
-    id = State()
 
-@admin_router.message(F.text == "/admin")
-async def admin_panel(message: Message):
-    await message.answer("Панель адміністратора:", reply_markup=admin_keyboard)
+@router.message(Command("admin"))
+async def admin_menu(message: types.Message):
+    if message.from_user.id != ADMIN_ID:
+        return await message.answer("⛔ У вас немає доступу")
 
-@admin_router.callback_query(F.data == "add_product")
-async def add_product(callback: CallbackQuery, state: FSMContext):
-    await state.set_state(AddProduct.name)
-    await callback.message.answer("Введіть назву товару:")
+    keyboard = [
+        [types.KeyboardButton(text="➕ Додати товар")],
+        [types.KeyboardButton(text="❌ Видалити товар")],
+        [types.KeyboardButton(text="📦 Список товарів")],
+    ]
+    markup = types.ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
+    await message.answer("Адмін-панель:", reply_markup=markup)
 
-@admin_router.message(AddProduct.name)
-async def product_name(message: Message, state: FSMContext):
+
+# ================== ADD PRODUCT ==================
+@router.message(lambda m: m.text == "➕ Додати товар")
+async def add_product_start(message: types.Message, state: FSMContext):
+    await state.set_state(AddProductFSM.name)
+    await message.answer("Введіть назву товару:")
+
+
+@router.message(AddProductFSM.name)
+async def add_product_name(message: types.Message, state: FSMContext):
     await state.update_data(name=message.text)
-    await state.set_state(AddProduct.description)
+    await state.set_state(AddProductFSM.description)
     await message.answer("Введіть опис товару:")
 
-@admin_router.message(AddProduct.description)
-async def product_description(message: Message, state: FSMContext):
+
+@router.message(AddProductFSM.description)
+async def add_product_description(message: types.Message, state: FSMContext):
     await state.update_data(description=message.text)
-    await state.set_state(AddProduct.price)
+    await state.set_state(AddProductFSM.price)
     await message.answer("Введіть ціну товару:")
 
-@admin_router.message(AddProduct.price)
-async def product_price(message: Message, state: FSMContext):
-    await state.update_data(price=message.text)
-    await state.set_state(AddProduct.photo)
+
+@router.message(AddProductFSM.price)
+async def add_product_price(message: types.Message, state: FSMContext):
+    try:
+        price = float(message.text)
+    except ValueError:
+        return await message.answer("❌ Введіть число")
+    await state.update_data(price=price)
+    await state.set_state(AddProductFSM.photo)
     await message.answer("Надішліть фото товару:")
 
-@admin_router.message(AddProduct.photo, F.photo)
-async def product_photo(message: Message, state: FSMContext):
-    photo_id = message.photo[-1].file_id
+
+@router.message(AddProductFSM.photo)
+async def add_product_photo(message: types.Message, state: FSMContext, pool):
+    if not message.photo:
+        return await message.answer("Надішліть саме фото!")
+    file_id = message.photo[-1].file_id
     data = await state.get_data()
-    await execute(
-        "INSERT INTO products (name, description, price, photo_id) VALUES ($1,$2,$3,$4)",
-        data['name'], data['description'], data['price'], photo_id
-    )
-    await message.answer("Товар додано!")
+    await db.add_product(pool, data["name"], data["description"], data["price"], file_id)
     await state.clear()
+    await message.answer("✅ Товар додано!")
+
+
+# ================== DELETE PRODUCT ==================
+@router.message(lambda m: m.text == "❌ Видалити товар")
+async def delete_product_start(message: types.Message, pool):
+    products = await db.get_products(pool)
+    if not products:
+        return await message.answer("Немає товарів")
+    text = "Список товарів:\n"
+    for p in products:
+        text += f"{p['id']}. {p['name']} - {p['price']} грн\n"
+    text += "\nВведіть ID товару для видалення:"
+    await message.answer(text)
+
+
+@router.message(lambda m: m.text.isdigit())
+async def delete_product(message: types.Message, pool):
+    await db.delete_product(pool, int(message.text))
+    await message.answer("✅ Товар видалено")
+
+
+# ================== LIST PRODUCTS ==================
+@router.message(lambda m: m.text == "📦 Список товарів")
+async def list_products(message: types.Message, pool):
+    products = await db.get_products(pool)
+    if not products:
+        return await message.answer("Немає товарів")
+    text = "Список товарів:\n"
+    for p in products:
+        text += f"{p['id']}. {p['name']} - {p['price']} грн\n"
+    await message.answer(text)
