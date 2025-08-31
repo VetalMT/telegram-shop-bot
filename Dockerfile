@@ -1,26 +1,20 @@
-# Використовуємо легкий образ Python
+# Використовуємо офіційний Python образ
 FROM python:3.11-slim
 
-# Встановлюємо робочу директорію
+# Встановлюємо залежності для psycopg2
+RUN apt-get update && apt-get install -y build-essential libpq-dev
+
+# Створюємо робочу директорію
 WORKDIR /app
 
-# Встановлюємо системні залежності (щоб asyncpg, psycopg2 і reportlab зібрались)
-RUN apt-get update && apt-get install -y \
-    build-essential \
-    libpq-dev \
-    && rm -rf /var/lib/apt/lists/*
-
-# Копіюємо requirements.txt
+# Копіюємо залежності
 COPY requirements.txt .
 
-# Встановлюємо Python-залежності
+# Встановлюємо пакети
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Копіюємо увесь код у контейнер
+# Копіюємо весь проект
 COPY . .
-
-# Відкриваємо порт (якщо треба для webhook)
-EXPOSE 8080
 
 # Запуск бота
 CMD ["python", "app.py"]
