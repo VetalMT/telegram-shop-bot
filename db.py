@@ -1,5 +1,4 @@
 import os
-import asyncio
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker, declarative_base
 from sqlalchemy import Column, Integer, String, Float, Boolean
@@ -7,11 +6,13 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# Замінюємо postgres:// на postgresql+asyncpg://
 DATABASE_URL = os.getenv("DATABASE_URL")
+if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+asyncpg://", 1)
 
 Base = declarative_base()
 
-# Модель товару
 class Product(Base):
     __tablename__ = "products"
 
@@ -22,7 +23,6 @@ class Product(Base):
     available = Column(Boolean, default=True)
 
 
-# Підключення до БД
 engine = create_async_engine(DATABASE_URL, echo=True)
 SessionLocal = sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
 
