@@ -1,7 +1,7 @@
 services:
   - type: web
-    name: telegram-shop-bot
+    name: my-fastapi-service
     env: docker
     plan: free
-    branch: main
-    dockerfilePath: Dockerfile
+    autoDeploy: true
+    region: frankfurt
