@@ -1,20 +1,23 @@
-# Використовуємо офіційний Python образ
+# Використовуємо легкий офіційний образ Python
 FROM python:3.11-slim
 
-# Встановлюємо залежності для psycopg2
-RUN apt-get update && apt-get install -y build-essential libpq-dev
+# Встановлюємо залежності для роботи з PostgreSQL та системні пакети
+RUN apt-get update && apt-get install -y \
+    gcc \
+    libpq-dev \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
 
-# Створюємо робочу директорію
+# Встановлюємо залежності Python
 WORKDIR /app
-
-# Копіюємо залежності
 COPY requirements.txt .
-
-# Встановлюємо пакети
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Копіюємо весь проект
+# Копіюємо увесь проект
 COPY . .
 
-# Запуск бота
+# Вказуємо змінну оточення
+ENV PYTHONUNBUFFERED=1
+
+# Запускаємо бота
 CMD ["python", "app.py"]
