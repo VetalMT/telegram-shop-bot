@@ -1,19 +1,41 @@
 import logging
-from fastapi import FastAPI
+import os
+from fastapi import FastAPI, Request
+from aiogram import Bot, Dispatcher, types
+from aiogram.types import Update
+import asyncio
+
 from db import engine, Base
-from models import User
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.future import select
 
 logging.basicConfig(level=logging.INFO)
+
+TOKEN = os.getenv("BOT_TOKEN")
+bot = Bot(token=TOKEN)
+dp = Dispatcher()
 
 app = FastAPI()
 
 @app.on_event("startup")
 async def startup():
-    # створюємо таблиці, якщо їх ще нема
+    # створюємо таблиці
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
+    # встановлюємо webhook
+    webhook_url = f"{os.getenv('RENDER_EXTERNAL_URL')}/webhook/{TOKEN}"
+    await bot.set_webhook(webhook_url)
+    logging.info(f"✅ Webhook встановлено: {webhook_url}")
+
+
+@app.post("/webhook/{token}")
+async def telegram_webhook(token: str, request: Request):
+    if token != TOKEN:
+        return {"error": "Invalid token"}
+
+    data = await request.json()
+    update = Update(**data)
+    await dp.feed_update(bot, update)
+    return {"ok": True}
 
 
 @app.get("/")
@@ -21,9 +43,7 @@ async def root():
     return {"message": "✅ API працює на Render!"}
 
 
-@app.get("/users")
-async def get_users():
-    async with AsyncSession(engine) as session:
-        result = await session.execute(select(User))
-        users = result.scalars().all()
-        return {"users": [u.name for u in users]}
+# Приклад команди
+@dp.message(commands=["start"])
+async def start_handler(message: types.Message):
+    await message.answer("Привіт! 👋 Бот працює через webhook 🚀")
