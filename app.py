@@ -1,37 +1,29 @@
 import logging
-import asyncio
-import os
-from aiogram import Bot, Dispatcher
-from aiogram.types import Message
-from aiogram.filters import Command
-from dotenv import load_dotenv
-
-from handlers_user import register_user_handlers
-from handlers_admin import register_admin_handlers
-from db import init_db
-
-# Завантажуємо .env
-load_dotenv()
-
-TOKEN = os.getenv("BOT_TOKEN")
+from fastapi import FastAPI
+from db import engine, Base
+from models import User
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
 
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
-bot = Bot(token=TOKEN)
-dp = Dispatcher()
+app = FastAPI()
 
-
-async def start_bot():
-    logger.info("🚀 Запуск бота...")
-    await init_db()  # ініціалізація бази
-    register_user_handlers(dp)
-    register_admin_handlers(dp)
-    await dp.start_polling(bot)
+@app.on_event("startup")
+async def startup():
+    # створюємо таблиці, якщо їх ще нема
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
 
 
-if __name__ == "__main__":
-    try:
-        asyncio.run(start_bot())
-    except (KeyboardInterrupt, SystemExit):
-        logger.info("❌ Бот зупинений")
+@app.get("/")
+async def root():
+    return {"message": "✅ API працює на Render!"}
+
+
+@app.get("/users")
+async def get_users():
+    async with AsyncSession(engine) as session:
+        result = await session.execute(select(User))
+        users = result.scalars().all()
+        return {"users": [u.name for u in users]}
