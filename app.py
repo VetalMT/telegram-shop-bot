@@ -1,30 +1,37 @@
-import asyncio
-from aiogram import Bot, Dispatcher
 import logging
-from config import BOT_TOKEN
-import db
-import handlers_admin, handlers_user
+import asyncio
+import os
+from aiogram import Bot, Dispatcher
+from aiogram.types import Message
+from aiogram.filters import Command
+from dotenv import load_dotenv
+
+from handlers_user import register_user_handlers
+from handlers_admin import register_admin_handlers
+from db import init_db
+
+# Завантажуємо .env
+load_dotenv()
+
+TOKEN = os.getenv("BOT_TOKEN")
 
 logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-async def main():
-    bot = Bot(token=BOT_TOKEN)
-    dp = Dispatcher()
+bot = Bot(token=TOKEN)
+dp = Dispatcher()
 
-    pool = await db.create_pool()
-    await db.init_db(pool)
 
-    dp.include_router(handlers_admin.router)
-    dp.include_router(handlers_user.router)
-
-    # Проброс pool у всі хендлери
-    async def pool_middleware(handler, event, data):
-        data["pool"] = pool
-        return await handler(event, data)
-    dp.message.middleware(pool_middleware)
-    dp.callback_query.middleware(pool_middleware)
-
+async def start_bot():
+    logger.info("🚀 Запуск бота...")
+    await init_db()  # ініціалізація бази
+    register_user_handlers(dp)
+    register_admin_handlers(dp)
     await dp.start_polling(bot)
 
+
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(start_bot())
+    except (KeyboardInterrupt, SystemExit):
+        logger.info("❌ Бот зупинений")
