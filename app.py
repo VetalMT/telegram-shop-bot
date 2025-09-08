@@ -1,80 +1,100 @@
+import logging
 import os
 import asyncio
-from fastapi import FastAPI, Request
-from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
-import asyncpg
-from dotenv import load_dotenv
 
-load_dotenv()
+from aiogram import Bot, Dispatcher
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+from aiogram.fsm.storage.memory import MemoryStorage
+from aiohttp import web
 
+# наші модулі
+from handlers_admin import admin_router
+from handlers_user import user_router
+from handlers_shop import shop_router
+from db import init_db
+from keyboards import shop_kb, admin_kb
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# 🔑 Токен бота
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-DB_HOST = os.getenv("DB_HOST")
-DB_PORT = int(os.getenv("DB_PORT", 5432))
-DB_NAME = os.getenv("DB_NAME")
-DB_USER = os.getenv("DB_USER")
-DB_PASSWORD = os.getenv("DB_PASSWORD")
-PORT = int(os.environ.get("PORT", 8000))
-WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # Наприклад: https://твій-домен.onrender.com/webhook/<BOT_TOKEN>
+if not BOT_TOKEN:
+    raise ValueError("❌ Не вказано BOT_TOKEN в змінних оточення!")
 
-app = FastAPI()
-telegram_app = ApplicationBuilder().token(BOT_TOKEN).build()
-WEBHOOK_PATH = f"/webhook/{BOT_TOKEN}"
+# 🛡️ ID адміністратора
+ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
+if not ADMIN_ID:
+    raise ValueError("❌ Не вказано ADMIN_ID в змінних оточення!")
 
+# 🌍 Webhook URL (Render виставляє RENDER_EXTERNAL_URL)
+RENDER_EXTERNAL_URL = os.getenv("RENDER_EXTERNAL_URL")
+if not RENDER_EXTERNAL_URL:
+    raise ValueError("❌ Не вказано RENDER_EXTERNAL_URL в змінних оточення!")
 
-# --- PostgreSQL: збереження користувача ---
-async def save_user(telegram_id: int, username: str | None):
-    conn = await asyncpg.connect(
-        host=DB_HOST,
-        port=DB_PORT,
-        user=DB_USER,
-        password=DB_PASSWORD,
-        database=DB_NAME
-    )
-    await conn.execute("""
-        CREATE TABLE IF NOT EXISTS users(
-            id SERIAL PRIMARY KEY,
-            telegram_id BIGINT UNIQUE,
-            username TEXT
-        );
-    """)
-    await conn.execute("""
-        INSERT INTO users (telegram_id, username)
-        VALUES ($1, $2)
-        ON CONFLICT (telegram_id) DO NOTHING;
-    """, telegram_id, username)
-    await conn.close()
+WEBHOOK_URL = f"{RENDER_EXTERNAL_URL}/webhook"
 
+# ================== Налаштування бота ==================
+storage = MemoryStorage()
+bot = Bot(token=BOT_TOKEN)
+dp = Dispatcher(storage=storage)
 
-# --- Команди бота ---
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    await save_user(user.id, user.username)
-    await update.message.reply_text(f"Привіт, {user.first_name}! Ласкаво просимо до нашого магазину.")
+# ================== Клавіатури (для локального використання стартових повідомлень) ==================
+main_kb = ReplyKeyboardMarkup(
+    keyboard=[
+        [KeyboardButton(text="📦 Каталог"), KeyboardButton(text="🛒 Корзина")]
+    ],
+    resize_keyboard=True
+)
 
+# ================== Роутери ==================
+dp.include_router(admin_router)
+dp.include_router(user_router)
+dp.include_router(shop_router)
 
-telegram_app.add_handler(CommandHandler("start", start))
+# ================== Адмін / старт ==================
+@dp.message_handler(commands=["start"])
+async def start_handler(message):
+    if message.from_user.id == ADMIN_ID:
+        await message.answer("Вітаю, адміністратор!", reply_markup=admin_kb)
+    else:
+        await message.answer("Вітаю у магазині!", reply_markup=shop_kb)
 
+# ================== Webhook ==================
+async def handle_webhook(request: web.Request):
+    update = await request.json()
+    # Feed update into dispatcher
+    await dp.feed_webhook_update(bot, update)
+    return web.Response(text="OK")
 
-# --- Webhook endpoint ---
-@app.post(WEBHOOK_PATH)
-async def webhook(request: Request):
-    data = await request.json()
-    update = Update.de_json(data, telegram_app.bot)
-    await telegram_app.update_queue.put(update)
-    return {"ok": True}
+async def on_startup(app: web.Application):
+    logger.info("Запуск: ініціалізація БД...")
+    await init_db()
+    # Прописати вебхук
+    await bot.set_webhook(WEBHOOK_URL)
+    logger.info(f"✅ Webhook встановлено: {WEBHOOK_URL}")
 
+async def on_shutdown(app: web.Application):
+    logger.info("⚠️ Бот зупиняється...")
+    await bot.delete_webhook()
+    await bot.session.close()
+    await storage.close()
 
-# --- Запуск бота у фоновому завданні ---
-@app.on_event("startup")
-async def on_startup():
-    await telegram_app.initialize()
-    await telegram_app.start()
-    await telegram_app.bot.set_webhook(WEBHOOK_URL)
-    print("Бот запущено на Webhook!")
+# ================== Запуск ==================
+def main():
+    port = int(os.getenv("PORT", 10000))
+    app = web.Application()
+    app.router.add_post("/webhook", handle_webhook)
 
+    # опційно простий healthcheck на /
+    async def health(request: web.Request):
+        return web.Response(text="OK")
+    app.router.add_get("/", health)
 
-@app.on_event("shutdown")
-async def on_shutdown():
-    await telegram_app.stop()
-    await telegram_app.shutdown()
+    app.on_startup.append(on_startup)
+    app.on_shutdown.append(on_shutdown)
+
+    web.run_app(app, host="0.0.0.0", port=port)
+
+if __name__ == "__main__":
+    main()
