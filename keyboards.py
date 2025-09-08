@@ -1,7 +1,7 @@
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-# Меню користувача
+# Меню користувача (reply-кнопки внизу)
 shop_kb = ReplyKeyboardMarkup(
     resize_keyboard=True,
     keyboard=[
@@ -10,7 +10,7 @@ shop_kb = ReplyKeyboardMarkup(
     ]
 )
 
-# Меню адміністратора
+# Меню адміна (reply-кнопки внизу)
 admin_kb = ReplyKeyboardMarkup(
     resize_keyboard=True,
     keyboard=[
@@ -29,6 +29,7 @@ def product_inline_kb(product_id: int) -> InlineKeyboardMarkup:
 
 def cart_inline_kb(items: list) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
+    # Кнопки видалення для кожного товару (мінус 1)
     for it in items:
         kb.button(text=f"❌ {it['name']} (–1)", callback_data=f"cart:remove:{it['product_id']}")
     if items:
