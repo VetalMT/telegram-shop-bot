@@ -4,7 +4,8 @@ import asyncio
 
 from aiogram import Bot, Dispatcher
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
-from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.contrib.fsm_storage.memory import MemoryStorage
+
 from aiohttp import web
 
 # наші модулі
