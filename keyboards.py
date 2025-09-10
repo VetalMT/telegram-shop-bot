@@ -1,39 +1,36 @@
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup
-from aiogram.utils.keyboard import InlineKeyboardBuilder
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 
-# Меню користувача (reply-кнопки внизу)
-shop_kb = ReplyKeyboardMarkup(
-    resize_keyboard=True,
+# ========================
+# Клавіатура для користувача
+# ========================
+
+menu_kb = ReplyKeyboardMarkup(
     keyboard=[
-        [KeyboardButton(text="🛍 Каталог")],
-        [KeyboardButton(text="🛒 Кошик")]
-    ]
+        [
+            KeyboardButton(text="🛍 Магазин"),
+            KeyboardButton(text="ℹ️ Допомога")
+        ],
+        [
+            KeyboardButton(text="📦 Мої замовлення")
+        ]
+    ],
+    resize_keyboard=True
 )
 
-# Меню адміна (reply-кнопки внизу)
+# ========================
+# Клавіатура для адміна
+# ========================
+
 admin_kb = ReplyKeyboardMarkup(
-    resize_keyboard=True,
     keyboard=[
-        [KeyboardButton(text="➕ Додати товар")],
-        [KeyboardButton(text="❌ Видалити товар")],
-        [KeyboardButton(text="📦 Переглянути товари")]
-    ]
+        [
+            KeyboardButton(text="➕ Додати товар"),
+            KeyboardButton(text="📋 Список товарів")
+        ],
+        [
+            KeyboardButton(text="📊 Статистика"),
+            KeyboardButton(text="👥 Користувачі")
+        ]
+    ],
+    resize_keyboard=True
 )
-
-def product_inline_kb(product_id: int) -> InlineKeyboardMarkup:
-    kb = InlineKeyboardBuilder()
-    kb.button(text="➕ Додати у кошик", callback_data=f"add:{product_id}")
-    kb.button(text="🛒 Відкрити кошик", callback_data="cart:open")
-    kb.adjust(1)
-    return kb.as_markup()
-
-def cart_inline_kb(items: list) -> InlineKeyboardMarkup:
-    kb = InlineKeyboardBuilder()
-    # Кнопки видалення для кожного товару
-    for it in items:
-        kb.button(text=f"❌ {it['name']} (–1)", callback_data=f"cart:remove:{it['product_id']}")
-    if items:
-        kb.button(text="🧹 Очистити все", callback_data="cart:clear")
-        kb.button(text="✅ Оформити замовлення", callback_data="order:start")
-    kb.adjust(1)
-    return kb.as_markup()
