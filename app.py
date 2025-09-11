@@ -24,7 +24,13 @@ WEBHOOK_HOST = os.getenv("WEBHOOK_HOST")  # https://shop-x54i.onrender.com
 WEBHOOK_PATH = f"/webhook/{BOT_TOKEN}"
 WEBHOOK_URL = f"{WEBHOOK_HOST}{WEBHOOK_PATH}"
 
-bot = Bot(token=BOT_TOKEN, parse_mode="HTML")
+from aiogram.client.default import DefaultBotProperties
+
+bot = Bot(
+    token=BOT_TOKEN,
+    default=DefaultBotProperties(parse_mode="HTML")
+)
+
 dp = Dispatcher(storage=MemoryStorage())
 dp.include_router(user_router)
 dp.include_router(admin_router)
