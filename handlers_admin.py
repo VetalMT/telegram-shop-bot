@@ -7,7 +7,7 @@ from config import ADMIN_ID
 from keyboards import admin_kb
 from db import add_product, get_products, delete_product, count_products
 
-admin_router = Router()
+admin_router = Router(name="admin")
 
 # ---------- FSM для додавання товару ----------
 class AddProductFSM(StatesGroup):
@@ -84,8 +84,6 @@ async def _confirm_product(message: types.Message, state: FSMContext):
 @admin_router.message(AddProductFSM.confirm, F.text.in_({"+", "-"}))
 async def admin_add_product_confirm(message: types.Message, state: FSMContext):
     txt = message.text.strip()
-    if txt not in {"+", "-"}:
-        return
     if txt == "-":
         await state.clear()
         await message.answer("❌ Додавання скасовано.", reply_markup=admin_kb)
