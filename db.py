@@ -1,7 +1,8 @@
 import aiosqlite
 from typing import List, Optional, Tuple, Dict, Any
+import config
 
-DB_PATH = "shop.db"
+DB_PATH = config.DB_PATH
 
 async def init_db():
     async with aiosqlite.connect(DB_PATH) as db:
