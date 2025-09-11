@@ -5,6 +5,10 @@ import config
 DB_PATH = config.DB_PATH
 
 async def init_db():
+    """
+    Ініціалізує базу (створює таблиці, якщо їх немає).
+    Викликати на старті застосунку.
+    """
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("PRAGMA foreign_keys = ON;")
         await db.execute("""
@@ -113,7 +117,6 @@ async def add_to_cart(user_id: int, product_id: int, qty: int = 1):
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("PRAGMA foreign_keys = ON;")
         cart_id = await _get_or_create_cart_id(db, user_id)
-
         cur = await db.execute("SELECT qty FROM cart_items WHERE cart_id=? AND product_id=?", (cart_id, product_id))
         row = await cur.fetchone()
         if row:
@@ -123,9 +126,6 @@ async def add_to_cart(user_id: int, product_id: int, qty: int = 1):
         await db.commit()
 
 async def remove_from_cart(user_id: int, product_id: int, qty: int = 1):
-    """
-    Зменшити кількість товару в кошику на qty. Якщо qty >= поточна кількість -> видалити запис.
-    """
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("PRAGMA foreign_keys = ON;")
         cur = await db.execute("SELECT id FROM carts WHERE user_id=?", (user_id,))
