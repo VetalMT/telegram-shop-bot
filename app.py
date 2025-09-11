@@ -1,87 +1,79 @@
-import os
 import logging
+import os
+
+from aiogram import Bot, Dispatcher, types
+from aiogram.types import BotCommand
+from aiogram.fsm.storage.memory import MemoryStorage
 from aiohttp import web
 
-from aiogram import Bot, Dispatcher
-from aiogram.fsm.storage.memory import MemoryStorage
-
-# імпорти з твоїх файлів у корені
-from handlers_admin import admin_router
-from handlers_shop import shop_router
 from handlers_user import user_router
-from db import init_db
-import config
+from handlers_admin import admin_router
 
+# -------------------------------
+# 🔧 Logging
+# -------------------------------
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-BOT_TOKEN = config.BOT_TOKEN
-if not BOT_TOKEN:
-    raise RuntimeError("❌ Не вказано BOT_TOKEN в змінних оточення!")
-
-WEBHOOK_HOST = config.WEBHOOK_HOST
-if not WEBHOOK_HOST:
-    raise RuntimeError("❌ Не вказано WEBHOOK_HOST або RENDER_EXTERNAL_URL у змінних оточення!")
-
+# -------------------------------
+# 🔧 Config
+# -------------------------------
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+ADMIN_ID = os.getenv("ADMIN_ID")
+WEBHOOK_HOST = os.getenv("WEBHOOK_HOST")  # https://shop-x54i.onrender.com
 WEBHOOK_PATH = f"/webhook/{BOT_TOKEN}"
-WEBHOOK_URL = f"{WEBHOOK_HOST.rstrip('/')}{WEBHOOK_PATH}"
+WEBHOOK_URL = f"{WEBHOOK_HOST}{WEBHOOK_PATH}"
 
-# Aiogram objects
-bot = Bot(token=BOT_TOKEN)
-storage = MemoryStorage()
-dp = Dispatcher(storage=storage)
-
-# Роутери
-dp.include_router(admin_router)
-dp.include_router(shop_router)
+bot = Bot(token=BOT_TOKEN, parse_mode="HTML")
+dp = Dispatcher(storage=MemoryStorage())
 dp.include_router(user_router)
+dp.include_router(admin_router)
 
 
-async def handle_webhook(request: web.Request):
-    """Приймаємо update від Telegram (JSON) і передаємо диспетчеру."""
-    try:
-        update = await request.json()
-    except Exception as e:
-        logger.exception("Failed to parse request JSON: %s", e)
-        return web.Response(status=400, text="Bad Request")
-    await dp.feed_webhook_update(bot=bot, update=update)
-    return web.Response(text="OK")
-
-
+# -------------------------------
+# 🔧 Startup & Shutdown
+# -------------------------------
 async def on_startup(app: web.Application):
     logger.info("🚀 Startup: ініціалізую БД...")
-    await init_db()
-    logger.info("🌍 Встановлюю webhook: %s", WEBHOOK_URL)
     await bot.set_webhook(WEBHOOK_URL)
-    logger.info("✅ Webhook встановлено.")
+    logger.info(f"🌍 Встановлюю webhook: {WEBHOOK_URL}")
 
 
 async def on_shutdown(app: web.Application):
     logger.info("⚠️ Shutdown: видаляю webhook і закриваю сесію...")
-    try:
-        await bot.delete_webhook(drop_pending_updates=True)
-    except Exception as e:
-        logger.exception("Помилка при видаленні webhook: %s", e)
-    try:
-        await bot.session.close()
-    except Exception:
-        pass
-    logger.info("Завершено.")
+    await bot.delete_webhook()
+    await bot.session.close()
+
+
+# -------------------------------
+# 🔧 Aiogram bot handlers
+# -------------------------------
+async def set_commands():
+    commands = [
+        BotCommand(command="/start", description="Почати роботу"),
+        BotCommand(command="/help", description="Допомога"),
+    ]
+    await bot.set_my_commands(commands)
+
+
+# -------------------------------
+# 🔧 Aiohttp web server
+# -------------------------------
+async def handle(request: web.Request):
+    data = await request.json()
+    update = types.Update(**data)
+    await dp.feed_update(bot, update)
+    return web.Response()
 
 
 def main():
     app = web.Application()
-    app.router.add_post(WEBHOOK_PATH, handle_webhook)
-
-    async def health(request: web.Request):
-        return web.Response(text="OK")
-    app.router.add_get("/", health)
+    app.router.add_post(WEBHOOK_PATH, handle)
 
     app.on_startup.append(on_startup)
     app.on_shutdown.append(on_shutdown)
 
-    port = int(os.getenv("PORT", "8080"))
-    web.run_app(app, host="0.0.0.0", port=port)
+    web.run_app(app, host="0.0.0.0", port=int(os.getenv("PORT", 10000)))
 
 
 if __name__ == "__main__":
