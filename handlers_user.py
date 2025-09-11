@@ -6,7 +6,7 @@ from aiogram.fsm.context import FSMContext
 from keyboards import shop_kb, product_inline_kb, cart_inline_kb
 from db import get_products, add_to_cart, get_cart, remove_from_cart, clear_cart, create_order
 
-user_router = Router()
+user_router = Router(name="user")
 
 # ---------- START і базові кнопки ----------
 @user_router.message(Command("start"))
@@ -17,7 +17,7 @@ async def cmd_start(message: types.Message):
     )
 
 # Натиснута нижня кнопка "Каталог"
-@user_router.message(F.text.in_(["📦 Каталог", "🛍 Каталог", "🛍 Каталог"]))
+@user_router.message(F.text.in_(["📦 Каталог", "🛍 Каталог", "🛍 Магазин", "🛍 Каталог"]))
 async def open_catalog_from_reply(message: types.Message):
     await show_catalog(message)
 
@@ -99,9 +99,9 @@ async def cb_cart_remove(callback: types.CallbackQuery):
     item = next((i for i in items if i["product_id"] == product_id), None)
     if not item:
         return
-    # зменшуємо на 1 або видаляємо, якщо було 1
+    # зменшуємо на 1 або видаляємо повністю, якщо було 1
     if item["qty"] <= 1:
-        await remove_from_cart(callback.from_user.id, product_id, qty=99999)
+        await remove_from_cart(callback.from_user.id, product_id, qty=item["qty"])
     else:
         await remove_from_cart(callback.from_user.id, product_id, qty=1)
     await show_cart(callback.from_user.id, cq=callback)
