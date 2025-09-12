@@ -1,7 +1,10 @@
 import os
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
-DB_PATH = os.getenv("DB_PATH", "shop.db")
-# WEBHOOK_HOST можна задати як WEBHOOK_HOST або Render дає RENDER_EXTERNAL_URL
-WEBHOOK_HOST = os.getenv("WEBHOOK_HOST") or os.getenv("RENDER_EXTERNAL_URL")
+TOKEN = os.getenv("BOT_TOKEN")  # <-- твій токен з Render Env Vars
+
+WEBHOOK_HOST = os.getenv("RENDER_EXTERNAL_URL", f"https://{os.getenv('RENDER_SERVICE_NAME')}.onrender.com")
+WEBHOOK_PATH = f"/webhook/{TOKEN}"
+WEBHOOK_URL = f"{WEBHOOK_HOST}{WEBHOOK_PATH}"
+
+WEBAPP_HOST = "0.0.0.0"  # для Render
+WEBAPP_PORT = int(os.getenv("PORT", 10000))
