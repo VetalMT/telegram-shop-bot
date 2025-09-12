@@ -81,20 +81,38 @@ async def _confirm_product(message: types.Message, state: FSMContext):
     await state.set_state(AddProductFSM.confirm)
     await message.answer(text)
 
-@admin_router.message(AddProductFSM.confirm, F.text.in_({"+", "-"}))
+@admin_router.message(AddProductFSM.confirm)
 async def admin_add_product_confirm(message: types.Message, state: FSMContext):
-    txt = message.text.strip()
-    if txt == "-":
+    txt = (message.text or "").strip().lower()
+
+    # Набір значень, які вважаються "підтвердженням"
+    positive = {"+", "＋", "ok", "так", "yes", "y", "підтвердити"}
+    negative = {"-", "−", "no", "ні", "cancel", "скасувати"}
+
+    if txt in negative:
         await state.clear()
         await message.answer("❌ Додавання скасовано.", reply_markup=admin_kb)
         return
+
+    if txt not in positive:
+        # якщо не розпізнали — підкажемо користувачу
+        await message.answer("Я не розпізнав підтвердження. Надішліть '+' щоб підтвердити або '-' щоб скасувати.")
+        return
+
+    # Якщо підтвердили, додаємо товар
     data = await state.get_data()
-    await add_product(
-        name=data["name"],
-        description=data["description"],
-        price=float(data["price"]),
-        photo_id=data.get("photo_id"),
-    )
+    try:
+        await add_product(
+            name=data["name"],
+            description=data["description"],
+            price=float(data["price"]),
+            photo_id=data.get("photo_id"),
+        )
+    except Exception as e:
+        await state.clear()
+        await message.answer(f"❗ Помилка при збереженні товару: {e}", reply_markup=admin_kb)
+        return
+
     await state.clear()
     await message.answer("✅ Товар додано!", reply_markup=admin_kb)
 
@@ -112,7 +130,7 @@ async def admin_view_products(message: types.Message):
         lines.append(f"#{pid} — {name} | {price} грн")
     await message.answer("📋 Список товарів:\n" + "\n".join(lines))
 
-# Видалення товару - запит ID
+# Видалення товару
 @admin_router.message(F.text == "❌ Видалити товар")
 async def admin_delete_prompt(message: types.Message):
     if message.from_user.id != ADMIN_ID:
